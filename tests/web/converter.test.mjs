@@ -1,7 +1,7 @@
 // Node test runner suite for the browser modules: node --test tests/web/
 
 import assert from "node:assert/strict";
-import { readFile, mkdtemp } from "node:fs/promises";
+import { readFile, mkdtemp, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +17,17 @@ const { normalizeFileName, slugify, storyDirName, storyUuid } = await import("..
 
 async function pack(name) {
   return readZip(new Uint8Array(await readFile(join(ROOT, name))));
+}
+
+// The Rachel pack is a copyrighted sample kept out of the repository, so CI
+// only has the gon pack.
+async function present(name) {
+  try {
+    await access(join(ROOT, name));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 test("folder naming reproduces a real published Telmi story", () => {
@@ -47,10 +58,14 @@ test("the outline splits on top-level chapters", async () => {
   assert.equal(book.frontMatter.length, 1);
 });
 
-test("a second, structurally different pack also parses", async () => {
-  const book = extractBook(await pack("Rachel-Corenblit-Wesh-la-fee.zip"));
-  assert.equal(book.chapters.length, 23);
-});
+test(
+  "a second, structurally different pack also parses",
+  { skip: !(await present("Rachel-Corenblit-Wesh-la-fee.zip")) ? "sample pack not in the repo" : false },
+  async () => {
+    const book = extractBook(await pack("Rachel-Corenblit-Wesh-la-fee.zip"));
+    assert.equal(book.chapters.length, 23);
+  },
+);
 
 test("the story zip carries every entry Telmi-Sync requires", async () => {
   const silent = new Uint8Array(await readFile(join(ROOT, "web/silence.mp3")));
