@@ -40,6 +40,20 @@ daisy2telmi --force gon-ruby-mp3.zip stories     # overwrite an existing story f
 
 Exit codes: `0` success, `1` pack unreadable or ffmpeg failed, `2` bad arguments / not a DAISY pack / story folder already exists.
 
+### GUI
+
+Running `daisy2telmi` with no arguments opens a Tkinter window: pick or drop a pack, pick an output folder, watch the same log the CLI writes. The conversion runs on a worker thread.
+
+Drag-and-drop needs the optional `tkinterdnd2` (`pip install -e .[gui]`); without it the browse buttons work and the window says so. `build_binary.py` passes `--collect-all tkinterdnd2` when it is installed, so the built binaries get drop support.
+
+On macOS, Homebrew's Python needs the Tk package separately: `brew install python-tk@3.15`.
+
+### Web page
+
+`web/` is a static converter that runs entirely in the browser, deployed to GitHub Pages from the `web` job. It shares no code with the Python package, so `tests/web/converter.test.mjs` pins it to the same naming, uuid and outline behaviour, and `tests/test_web_converter.py` runs the browser modules under Node and validates their output with the same validator as the CLI.
+
+It differs from the CLI in one way that matters: it concatenates MP3 frame data instead of re-encoding. That is safe because the player resamples, but it means no clip trimming and no bitrate normalisation. See [Known limitations](#known-limitations).
+
 ## Output
 
 The second argument is a parent folder. Inside it the story gets Telmi's own folder name, `<category>_<age>_<title>_<uuid>`:
@@ -59,6 +73,8 @@ stories/_00_Wesh la fee_292b74ca-d8be-53f9-a5d5-5224a36bbd02/
 ```
 
 If the second argument already has the conventional name it is used directly instead of nesting.
+
+Alongside the folder the converter writes `<story folder name>.zip`, which is what you hand to Telmi Sync's *Import → zip*. The folder goes in nested one level, because `findDirectory` in `ConvertZip.js` identifies the format by counting `metadata.json`, `nodes.json`, `title.mp3` and `title.png` in a single zip directory and requires exactly four.
 
 Telmi-Sync renames the folder to the same convention on import, so the name is for readability before import. `generateDirNameStory` is reproduced exactly — see the contract below.
 
@@ -80,7 +96,8 @@ The last chapter's `ok` is `null`, which is how the published sample packs end a
 
 - A story folder must contain **all six** of `audios/`, `images/`, `metadata.json`, `nodes.json`, `title.mp3`, `title.png`. `readStoryMetadata` deletes a folder missing any of them, and `storyFormatDetector` reports "Invalid story format".
 - `metadata.json` needs `title`, `uuid`, `image`, `version`; `age`, `category` and `description` are optional.
-- Audio is accepted unconverted only as MP3, 44100 Hz, mono or stereo, 64–192 kbps. Otherwise Telmi-Sync re-encodes it to 44100 Hz stereo.
+- Audio is accepted unconverted only as MP3, 44100 Hz, mono or stereo, 64–192 kbps. Otherwise Telmi-Sync re-encodes it to 44100 Hz stereo — but **only on the conversion import paths**. `ConvertFolderTelmi.js`, which handles a pack already in Telmi format, is a plain `copyFileSync` of every file: no re-encode. A Telmi-format pack must arrive with audio already inside the range.
+- The player itself is not that strict: `mp3_reader.h` calls `mpg123_format(handle, 44100, 2, …)`, so mpg123 resamples any source rate to 44100 Hz stereo. A 22050 Hz mono MP3 plays; it just stays at source quality.
 - A stage's `image` and `audio` may be `null`. `image` is loaded from `images/`, `audio` from `audios/`.
 - An action is a **list** of `{stage}` options; a transition's `index` selects one. With no `index`, the player picks at random.
 - A `null`-audio stage with `autoplay: true` advances immediately — Telmi-Sync's own idiom for a skipped stage.
@@ -164,7 +181,13 @@ pip install -e .[dev]
 pytest
 ```
 
-71 tests. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one.
+77 tests. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
+
+The browser modules have their own suite, run with Node's test runner:
+
+```bash
+node --test tests/web/converter.test.mjs
+```
 
 ## What was verified
 
@@ -183,10 +206,19 @@ Against a real published Telmi story (`_00_La reine des pirates_fffffd-19d14f92f
 - `story_dir_name` reproduces its folder name exactly.
 - `story_dir_name` was diffed against Telmi-Sync's real `generateDirNameStory` running in Node over six inputs, including accented, non-Latin, over-long and punctuation-heavy titles: byte-identical.
 
+The browser converter (`web/`), run under Node against both packs:
+
+- Same folder names as the CLI: `_00_ _fe3ea2d2-…` and `_00_Wesh la fee_292b74ca-…`.
+- `storyUuid` reproduces the CLI's uuid5 exactly, so both produce the same story id for the same pack.
+- Its output passes `validate_story_dir` and `validate_story_zip`, the same checks the CLI output is held to.
+- Concatenated audio decodes as MP3 at the source rate; the 6 chapters total 1372.4 s against the CLI's 1369.4 s. The 3 s difference is encoder padding left at the end of each source file, which the CLI trims.
+- Conversion time: 0.5 s for the 22-minute Japanese pack, 2.7 s for the 2 h 18 French one.
+- Driven in headless Chrome against `gon-ruby-mp3.zip`: the zip picker and the folder picker each produce a downloadable zip that passes `validate_story_zip` and `validate_story_dir`, with no page errors.
+
 Builds:
 
 - A `--onefile` PyInstaller build runs the whole conversion end to end with lxml bundled, and again with `PATH=/usr/bin:/bin` using the ffmpeg embedded in the bundle.
-- GitHub Actions builds and smoke-tests `daisy2telmi.exe` on a Windows runner.
+- GitHub Actions builds and smoke-tests `daisy2telmi.exe` on a Windows runner, the `.deb` on Ubuntu and the `.dmg` on macOS.
 
 ## Known limitations
 
@@ -198,7 +230,14 @@ Builds:
 - **A non-Latin title collapses in the folder name.** `stringNormalizeFileName` keeps only `a-zA-Z0-9-.`, so *ごんぎつね* becomes a single space and the folder is `_00_ _<uuid>`. This is Telmi-Sync's own behaviour, not a converter bug; `metadata.json` keeps the real title.
 - **Chapter granularity is fixed.** A pack with a single flat heading level becomes one chapter; there is no option to split on `h2`.
 - **No resume or bookmarking.** Telmi has no position concept in this format, so a listener restarts at chapter 1.
+- **The web page does not re-encode.** It joins MP3 frame data, so audio keeps the source sample rate and bitrate, and each source file's encoder padding survives (about 0.1 s per file). The player resamples, so it plays. Use the CLI when the audio has to meet the 44100 Hz / 64–192 kbps range exactly.
+- **The web page cannot trim clips.** A SMIL that plays part of a file yields the whole file. Both test packs use whole files, so this has not been hit in practice.
+- **The web page needs a recent browser.** It relies on `DecompressionStream`/`CompressionStream` (Chrome 80+, Firefox 113+, Safari 16.4+) and `crypto.subtle`, which requires a secure context — `https://` or `localhost`.
 
 ## v2 candidates
 
-GUI for picking a pack, DAISY 3 (`.opf` + `.ncx` + SMIL 2.0), spoken chapter cards (TTS), configurable granularity, cover art supplied by the user.
+DAISY 3 (`.opf` + `.ncx` + SMIL 2.0), spoken chapter cards (TTS), configurable granularity, cover art supplied by the user.
+
+## Licence
+
+GPL-3.0-or-later, see `LICENSE`. Copyright 2026 berthy456 and qwen-flash-next.

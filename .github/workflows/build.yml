@@ -129,6 +129,30 @@ jobs:
           name: daisy2telmi-macos
           path: dist/*.dmg
 
+  # The browser converter: tested under Node, then published as static files.
+  web:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test the browser modules
+        run: node --test tests/web/converter.test.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [windows-exe, linux-deb, macos-dmg]
