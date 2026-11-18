@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,25 @@ def _run(args: list[str], description: str) -> None:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         tail = detail[-1] if detail else f"exit code {result.returncode}"
         raise AudioError(f"{description}: {tail}")
+
+
+_DURATION = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2})\.(\d+)")
+
+
+def duration(src: str | Path) -> float | None:
+    """Seconds of audio in `src`, read from ffmpeg's header of the container.
+
+    ffmpeg is asked for no output file, so it exits non-zero once it has printed
+    the header: the header is the whole point, and decoding the file is not.
+    """
+    result = subprocess.run(
+        [require_ffmpeg(), "-hide_banner", "-i", str(src)], capture_output=True, text=True
+    )
+    match = _DURATION.search(result.stderr)
+    if match is None:
+        return None
+    hours, minutes, seconds, fraction = match.groups()
+    return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + float(f"0.{fraction}")
 
 
 def _trim_filter(segment: AudioSegment) -> str:

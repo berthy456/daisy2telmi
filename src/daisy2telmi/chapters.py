@@ -1,0 +1,122 @@
+"""Look at a pack's chapters before converting them: list them, listen to one, drop the rest.
+
+A DAISY table of contents says what a chapter is called, not what is in it. The
+front matter, an interview or a duplicated ending only become obvious on hearing
+them, so the chapter numbers printed here, shown in the window and accepted by
+`--drop` are the same everywhere.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Sequence
+
+from . import audio
+from .extractor import Book, Chapter
+
+log = logging.getLogger(__name__)
+
+
+class ChapterError(RuntimeError):
+    """Raised when a chapter selection does not name the pack's chapters."""
+
+
+@dataclass(frozen=True)
+class ChapterInfo:
+    number: int
+    title: str
+    seconds: float | None
+    clips: int
+
+
+def describe(book: Book, with_durations: bool = True) -> list[ChapterInfo]:
+    """One row per chapter. `seconds` is None when ffmpeg cannot read a source file."""
+    rows: list[ChapterInfo] = []
+    for number, chapter in enumerate(book.chapters, start=1):
+        total: float | None = None
+        if with_durations:
+            total = 0.0
+            for segment in chapter.segments:
+                seconds = audio.duration(segment.src)
+                if seconds is None:
+                    total = None
+                    break
+                if segment.end is not None:
+                    seconds = min(seconds, segment.end)
+                total += max(0.0, seconds - (segment.begin or 0.0))
+        rows.append(ChapterInfo(number, chapter.title, total, len(chapter.segments)))
+    return rows
+
+
+def format_seconds(seconds: float | None) -> str:
+    """`183.4` -> `3:03`; a length ffmpeg could not read stays a question mark."""
+    if seconds is None:
+        return "?"
+    minutes, rest = divmod(int(seconds), 60)
+    return f"{minutes}:{rest:02d}"
+
+
+def parse_selection(spec: str) -> list[int]:
+    """`"2, 4-6"` -> `[2, 4, 5, 6]`. Chapter numbers are 1-based, as printed."""
+    numbers: set[int] = set()
+    for part in re.split(r"[,\s;]+", spec.strip()):
+        if not part:
+            continue
+        bounds = re.fullmatch(r"(\d+)(?:-(\d+))?", part)
+        if bounds is None:
+            raise ChapterError(f"not a chapter number or a range: {part}")
+        start = int(bounds.group(1))
+        end = int(bounds.group(2) or start)
+        if end < start:
+            raise ChapterError(f"chapter range counts backwards: {part}")
+        numbers.update(range(start, end + 1))
+    if not numbers:
+        raise ChapterError("no chapter number in that selection")
+    return sorted(numbers)
+
+
+def drop_chapters(book: Book, numbers: Sequence[int]) -> Book:
+    """A copy of `book` without those 1-based chapter numbers."""
+    dropped = set(numbers)
+    unknown = sorted(n for n in dropped if not 1 <= n <= len(book.chapters))
+    if unknown:
+        raise ChapterError(
+            f"{book.title} has {len(book.chapters)} chapter(s), so there is no chapter "
+            f"{', '.join(str(n) for n in unknown)}"
+        )
+    kept = tuple(chapter for number, chapter in enumerate(book.chapters, start=1) if number not in dropped)
+    if not kept:
+        raise ChapterError("dropping those chapters leaves nothing to convert")
+    return replace(book, chapters=kept)
+
+
+def preview_name(info: ChapterInfo) -> str:
+    """A file name a music player sorts in chapter order."""
+    title = re.sub(r"[^\w\- ]+", "", info.title, flags=re.UNICODE).strip()
+    return f"{info.number:02d} {(title or 'chapter')[:40]}.mp3"
+
+
+def render_preview(info: ChapterInfo, chapter: Chapter, out_dir: Path) -> Path:
+    """One chapter's audio on its own, so it can be listened to on its own."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / preview_name(info)
+    log.info("previewing chapter %d: %s", info.number, chapter.title)
+    audio.render(chapter.segments, dest)
+    return dest
+
+
+def open_preview(path: Path) -> None:
+    """Hand the rendered chapter to the desktop's own player."""
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
+    except OSError as exc:
+        raise ChapterError(f"could not open {path.name}: {exc}")

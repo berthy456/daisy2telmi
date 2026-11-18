@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 
@@ -10,6 +11,8 @@ import pytest
 tk = pytest.importorskip("tkinter")
 
 from daisy2telmi import gui
+from daisy2telmi.detector import DaisyPackError
+from daisy2telmi.extractor import AudioSegment, Book, Chapter
 
 
 @pytest.fixture()
@@ -46,6 +49,14 @@ def test_a_missing_pack_is_refused_before_any_work(app: gui.App) -> None:
     app._drain()
     assert "no such pack" in app.log_view.get("1.0", "end")
     assert not Path("/tmp/daisy2telmi-never").exists()
+
+
+def test_an_empty_box_is_not_read_as_the_working_directory(app: gui.App, tmp_path) -> None:
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app._start()
+    app._drain()
+    assert "choose an output folder first" in app.log_view.get("1.0", "end")
 
 
 def test_a_missing_cover_is_refused_before_any_work(app: gui.App, tmp_path) -> None:
@@ -130,3 +141,76 @@ def test_the_announcement_setting_reaches_the_converter(app: gui.App) -> None:
     assert announce.mode == "chapter"
     assert announce.engine == "off"
     assert announce.phrase(2) == "Kapitel 2"
+
+
+@pytest.fixture()
+def three_chapters(app: gui.App, monkeypatch, tmp_path) -> Book:
+    """A pack whose chapters are already known, so the window needs no real pack."""
+    book = Book(
+        "Wesh la fee",
+        tuple(
+            Chapter(name, (AudioSegment(tmp_path / f"{name}.mp3"),))
+            for name in ("Un", "Deux", "Trois")
+        ),
+    )
+    monkeypatch.setattr(gui, "open_pack", lambda path: contextlib.nullcontext(object()))
+    monkeypatch.setattr(gui, "extract", lambda pack: book)
+    monkeypatch.setattr(gui.audio, "duration", lambda src: 12.5)
+    return book
+
+
+def test_the_chapter_window_lists_the_chapters(app: gui.App, three_chapters) -> None:
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._measure()
+    page._drain()
+
+    assert [label.cget("text") for label in page.sizes] == ["0:12"] * 3
+    assert [box.get() for box in page.keep] == [True, True, True]
+    assert page.info[1].title == "Deux"
+
+
+def test_unchecking_a_chapter_leaves_it_out_of_the_story(
+    app: gui.App, three_chapters, monkeypatch, tmp_path
+) -> None:
+    seen: list = []
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page.keep[1].set(False)
+    page._close()
+    assert app.dropped == {2}
+
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app._start()
+    app._drain()
+    assert seen[0][5] == "2"
+
+
+def test_keeping_every_chapter_sends_no_selection(app: gui.App, three_chapters, monkeypatch, tmp_path) -> None:
+    seen: list = []
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+
+    gui.ChapterList(app, Path("/tmp/pack.zip"))._close()
+
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app._start()
+    app._drain()
+    assert seen[0][5] is None
+
+
+def test_a_pack_the_window_cannot_open_is_reported(app: gui.App, monkeypatch) -> None:
+    def refuse(path: Path):
+        raise DaisyPackError("no DAISY pack in that folder")
+
+    monkeypatch.setattr(gui, "open_pack", refuse)
+    gui.ChapterList(app, Path("/tmp/pack.zip"))
+    assert "no DAISY pack" in app.log_view.get("1.0", "end")
+
+
+def test_the_chapters_button_needs_a_pack_first(app: gui.App) -> None:
+    app._open_chapters()
+    assert "choose a DAISY pack first" in app.log_view.get("1.0", "end")

@@ -190,6 +190,51 @@ def test_a_cover_replaces_every_generated_image(tmp_path: Path, story: Path) -> 
     assert cards[0].read_bytes() != cards[1].read_bytes()
 
 
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_listing_needs_no_output_folder(tmp_path: Path) -> None:
+    assert main(["--list", str(PACK)]) == 0
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_an_output_folder_is_still_required_to_convert() -> None:
+    with pytest.raises(SystemExit) as stop:
+        main([str(PACK)])
+    assert stop.value.code == 2
+
+
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_a_preview_writes_one_playable_file_per_chapter(tmp_path: Path) -> None:
+    listen = tmp_path / "listen"
+    assert main(["--preview", str(listen), str(PACK)]) == 0
+    files = sorted(p.name for p in listen.glob("*.mp3"))
+    assert len(files) == EXPECTED_CHAPTERS
+    assert files[0].startswith("01 ") and files[-1].startswith("06 ")
+    assert float(probe(listen / files[0])["duration"]) > 60
+
+
+@requires_pack
+def test_dropping_chapters_leaves_a_valid_shorter_story(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--drop", "1,4-6"]) == 0
+    story = next(entry for entry in out.iterdir() if entry.is_dir())
+    assert validate_story_dir(story) == []
+    assert len(list((story / "audios").glob("s*.mp3"))) == 2
+    nodes = json.loads((story / "nodes.json").read_text(encoding="utf-8"))
+    assert sorted(k for k in nodes["stages"] if k.startswith("s")) == ["s0", "s1"]
+    notes = json.loads((story / "notes.json").read_text(encoding="utf-8"))
+    assert [notes[f"m{k}"]["notes"] for k in (0, 1)] == ["二", "三"]
+
+
+@requires_pack
+def test_a_chapter_selection_that_does_not_fit_is_refused_early(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    for spec in ("7", "1-6", "two"):
+        assert main([str(PACK), str(out), "--drop", spec]) == 2, spec
+    assert not out.exists()
+
+
 MINIMAL_PACK = """<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head><meta name="dc:title" content="No Front Matter"/></head>

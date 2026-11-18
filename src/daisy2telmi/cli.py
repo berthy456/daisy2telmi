@@ -7,7 +7,8 @@ import logging
 import sys
 from pathlib import Path
 
-from . import __version__, audio, images, settings, tts
+from . import __version__, audio, chapters, images, settings, tts
+from .chapters import ChapterError
 from .detector import DaisyPackError, open_pack
 from .extractor import extract
 from .i18n import LANGUAGES
@@ -31,6 +32,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("input", type=Path, help="path to a DAISY pack (.zip or already extracted folder)")
     parser.add_argument(
         "output",
+        nargs="?",
         type=Path,
         help="folder to create the story folder in; the story folder gets Telmi's "
         "`<category>_<age>_<title>_<uuid>` name unless this path already has it",
@@ -43,6 +45,20 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         help="draw every chapter card over this picture instead of the placeholder",
     )
+    look = parser.add_argument_group("before converting")
+    look.add_argument("--list", action="store_true", help="print the pack's chapters and stop")
+    look.add_argument(
+        "--preview",
+        metavar="FOLDER",
+        type=Path,
+        help="write one MP3 per chapter into FOLDER and stop, so each chapter can be listened to",
+    )
+    look.add_argument(
+        "--drop",
+        metavar="CHAPTERS",
+        help="leave these chapters out of the story, by the numbers --list prints: '2' or '2,4-6'",
+    )
+
     speech = parser.add_argument_group("chapter card speech")
     speech.add_argument(
         "--announce",
@@ -67,7 +83,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "for example 'my-tts {text} {out}' with any Chatterbox-style model behind it",
     )
     parser.add_argument("--version", action="version", version=f"daisy2telmi {__version__}")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.output is None and not (args.list or args.preview):
+        parser.error("an output folder is required unless --list or --preview is given")
+    return args
 
 
 def announce_options(args: argparse.Namespace) -> Announce:
@@ -83,12 +102,49 @@ def announce_options(args: argparse.Namespace) -> Announce:
     )
 
 
+def inspect(input_path: Path, preview_dir: Path | None = None, drop: str | None = None) -> int:
+    """Print the pack's chapters, and render one MP3 per chapter when asked for it."""
+    try:
+        with open_pack(input_path) as pack:
+            log.info("pack root: %s", pack.root)
+            book = extract(pack)
+            if drop:
+                book = chapters.drop_chapters(book, chapters.parse_selection(drop))
+            if not book.chapters:
+                log.error("no chapter with audio found in %s", input_path)
+                return 2
+            log.info("%s: %d chapter(s)", book.title, len(book.chapters))
+            rows = chapters.describe(book)
+            for row in rows:
+                log.info(
+                    "  %2d  %s  %s  %d clip(s)",
+                    row.number,
+                    chapters.format_seconds(row.seconds),
+                    row.title,
+                    row.clips,
+                )
+            if preview_dir is None:
+                log.info("to listen to one: --preview FOLDER")
+            else:
+                audio.require_ffmpeg()
+                for row, chapter in zip(rows, book.chapters):
+                    log.info("  %s", chapters.render_preview(row, chapter, preview_dir))
+    except ChapterError as exc:
+        log.error("%s", exc)
+        return 2
+    except (DaisyPackError, audio.AudioError) as exc:
+        log.error("%s", exc)
+        return 1
+    return 0
+
+
 def convert(
     input_path: Path,
     output_dir: Path,
     force: bool = False,
     announce: Announce | None = None,
     cover: Path | None = None,
+    drop: str | None = None,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     try:
@@ -103,6 +159,9 @@ def convert(
                 log.error("no chapter with audio found in %s", input_path)
                 return 2
             log.info("found %d chapter(s): %s", len(book.chapters), ", ".join(c.title for c in book.chapters))
+            if drop:
+                book = chapters.drop_chapters(book, chapters.parse_selection(drop))
+                log.info("dropped %s: converting %d chapter(s)", drop, len(book.chapters))
             for chapter in book.chapters:
                 log.debug("  %s -> %s", chapter.title, [str(s.src.name) for s in chapter.segments])
             name = story_dir_name(book.title, story_uuid(book))
@@ -113,6 +172,9 @@ def convert(
             target.mkdir(parents=True, exist_ok=True)
             report = build_story(book, target, announce, cover)
             zip_path = write_story_zip(target, target.parent)
+    except ChapterError as exc:
+        log.error("%s", exc)
+        return 2
     except (DaisyPackError, StoryError, images.ImageError, audio.AudioError) as exc:
         log.error("%s", exc)
         return 1
@@ -138,7 +200,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s: %(message)s",
         stream=sys.stderr,
     )
-    return convert(args.input, args.output, args.force, announce_options(args), args.cover)
+    if args.list or args.preview:
+        return inspect(args.input, args.preview, args.drop)
+    return convert(args.input, args.output, args.force, announce_options(args), args.cover, args.drop)
 
 
 if __name__ == "__main__":

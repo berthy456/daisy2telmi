@@ -69,6 +69,20 @@ The number is drawn by the converter rather than by ffmpeg: Homebrew's ffmpeg ha
 
 The GUI has the same field below the output folder. The web page takes a cover from a file, from a link, or from a Google image search opened for the pack's title.
 
+### Listening before converting
+
+```bash
+daisy2telmi --list gon-ruby-mp3.zip
+daisy2telmi --preview /tmp/listen gon-ruby-mp3.zip
+daisy2telmi --drop 2,5-6 gon-ruby-mp3.zip stories
+```
+
+`--list` prints one line per chapter — number, length, title, clip count — and stops. It needs no output folder. `--preview FOLDER` writes one playable MP3 per chapter (`01 一.mp3`, `02 二.mp3`, ...) into FOLDER and stops, so a chapter can be heard before anything is built. The lengths come from ffmpeg's container header, not from decoding the file.
+
+`--drop` leaves chapters out of the story, by the numbers `--list` prints: `2`, or `2,4-6`. What is left is renumbered, so dropping chapter 1 makes the old chapter 2 the first one: its card reads `CHAPTER 1/5` and its announcement says `Chapter 1`. A number outside the book, or a selection that drops every chapter, stops the run with exit code 2.
+
+The GUI's **Chapters** button opens the same list. Each row shows the chapter's length, plays it through the system's audio player, and has a box to leave it out; closing the window keeps the unticked numbers for the next conversion.
+
 ### GUI
 
 Running `daisy2telmi` with no arguments opens a Tkinter window: pick or drop a pack, pick an output folder and an optional cover, watch the same log the CLI writes. The conversion runs on a worker thread.
@@ -215,7 +229,7 @@ pip install -e .[dev]
 pytest
 ```
 
-149 tests. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
+177 Python tests and 19 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
 
 The browser modules have their own suite, run with Node's test runner:
 

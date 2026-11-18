@@ -9,17 +9,21 @@ and written to `settings.py`, so the command line sees the same choices.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from . import settings, tts
+from . import audio, chapters, settings, tts
 from .cli import convert
+from .detector import DaisyPackError, open_pack
+from .extractor import extract
 from .i18n import LANGUAGES, text
-from .telmi_builder import Announce
+from .telmi_builder import Announce, slugify
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -54,6 +58,7 @@ class App:
         self.cover_var = tk.StringVar()
         self.force_var = tk.BooleanVar(value=False)
         self.language_var = tk.StringVar(value=self.options["language"])
+        self.dropped: set[int] = set()
         self._labels: dict[str, tk.Widget] = {}
         self._build()
         root.after(100, self._drain)
@@ -99,6 +104,7 @@ class App:
         self.convert_button = self._button(controls, "convert", self._start)
         self.convert_button.pack(side="left")
         self._button(controls, "options", self._open_options).pack(side="left", padx=12)
+        self._button(controls, "chapters", self._open_chapters).pack(side="left")
         self.force_box = ttk.Checkbutton(
             controls, text=self.t("overwrite"), variable=self.force_var
         )
@@ -129,6 +135,13 @@ class App:
 
     def _open_options(self) -> None:
         Options(self)
+
+    def _open_chapters(self) -> None:
+        source = self._typed_path(self.pack_var)
+        if source is None or not source.exists():
+            self._append("ERROR: choose a DAISY pack first")
+            return
+        ChapterList(self, source)
 
     def announce(self) -> Announce:
         return Announce(
@@ -173,20 +186,28 @@ class App:
         self.log_view.see("end")
         self.log_view.configure(state="disabled")
 
+    def _typed_path(self, var: tk.StringVar) -> Path | None:
+        """The folder or file the box holds, or None when it is empty.
+
+        An empty box must not become Path('.'), which exists and would be read as
+        the working directory.
+        """
+        typed = var.get().strip()
+        return Path(typed).expanduser() if typed else None
+
     def _start(self) -> None:
-        source = Path(self.pack_var.get().strip()).expanduser()
-        out_dir = Path(self.out_var.get().strip()).expanduser()
-        if not str(source):
+        source = self._typed_path(self.pack_var)
+        out_dir = self._typed_path(self.out_var)
+        if source is None:
             self._append("ERROR: choose a DAISY pack first")
             return
         if not source.exists():
             self._append(f"ERROR: no such pack: {source}")
             return
-        if not str(out_dir):
+        if out_dir is None:
             self._append("ERROR: choose an output folder first")
             return
-        typed = self.cover_var.get().strip()
-        cover = Path(typed).expanduser() if typed else None
+        cover = self._typed_path(self.cover_var)
         if cover is not None and not cover.exists():
             self._append(f"ERROR: no such image: {cover}")
             return
@@ -195,16 +216,30 @@ class App:
         self.convert_button.state(["disabled"])
         self.progress.start(12)
         announce = self.announce()
+        dropped = sorted(self.dropped)
         threading.Thread(
             target=self._run,
-            args=(source, out_dir, self.force_var.get(), announce, cover),
+            args=(
+                source,
+                out_dir,
+                self.force_var.get(),
+                announce,
+                cover,
+                ",".join(str(number) for number in dropped) if dropped else None,
+            ),
             daemon=True,
         ).start()
 
     def _run(
-        self, source: Path, out_dir: Path, force: bool, announce: Announce, cover: Path | None
+        self,
+        source: Path,
+        out_dir: Path,
+        force: bool,
+        announce: Announce,
+        cover: Path | None,
+        drop: str | None,
     ) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce, cover)))
+        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop)))
 
     def _drain(self) -> None:
         while True:
@@ -220,6 +255,120 @@ class App:
                 self._append(item)
 
         self.root.after(100, self._drain)
+
+
+class ChapterList:
+    """The pack's chapters: listen to one, uncheck the ones to leave out.
+
+    The pack stays open while the window is up, so listening costs no extra work.
+    Durations and previews run on worker threads and post their results to a queue
+    the Tk thread drains: widgets may only be touched from the thread that made
+    them.
+    """
+
+    def __init__(self, app: App, source: Path) -> None:
+        self.app = app
+        self.top = tk.Toplevel(app.root)
+        self.top.title(app.t("chapters"))
+        self.events: queue.Queue = queue.Queue()
+        self.packs = contextlib.ExitStack()
+        try:
+            self.book = extract(self.packs.enter_context(open_pack(source)))
+        except (DaisyPackError, OSError) as exc:
+            self.top.destroy()
+            app._append(f"ERROR: {exc}")
+            return
+
+        self.info = chapters.describe(self.book, with_durations=False)
+        self.cache = (
+            Path(tempfile.gettempdir()) / "daisy2telmi-preview" / (slugify(self.book.title) or "pack")
+        )
+
+        grid = ttk.Frame(self.top, padding=12)
+        grid.grid(sticky="nsew")
+        grid.columnconfigure(2, weight=1)
+        ttk.Label(grid, text=app.t("chapters_hint")).grid(
+            row=0, column=0, columnspan=5, sticky="w", pady=(0, 6)
+        )
+
+        self.keep: list[tk.BooleanVar] = []
+        self.sizes: list[ttk.Label] = []
+        self.play_buttons: list[ttk.Button] = []
+        for offset, info in enumerate(self.info):
+            row = offset + 1
+            box = tk.BooleanVar(value=info.number not in app.dropped)
+            self.keep.append(box)
+            ttk.Checkbutton(grid, variable=box).grid(row=row, column=0, sticky="w")
+            ttk.Label(grid, text=str(info.number)).grid(row=row, column=1, sticky="w", padx=(4, 8))
+            ttk.Label(grid, text=info.title).grid(row=row, column=2, sticky="w")
+            size = ttk.Label(grid, text="")
+            size.grid(row=row, column=3, sticky="e", padx=(12, 0))
+            self.sizes.append(size)
+            button = ttk.Button(
+                grid,
+                text=app.t("chapters_play"),
+                width=8,
+                command=lambda index=offset: self._play(index),
+            )
+            button.grid(row=row, column=4, sticky="e", padx=(12, 0))
+            self.play_buttons.append(button)
+
+        ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
+            row=len(self.info) + 1, column=0, columnspan=5, sticky="e", pady=(10, 0)
+        )
+        self.top.protocol("WM_DELETE_WINDOW", self._close)
+
+        threading.Thread(target=self._measure, daemon=True).start()
+        self.top.after(100, self._drain)
+
+    def _measure(self) -> None:
+        self.events.put(("sizes", chapters.describe(self.book)))
+
+    def _play(self, index: int) -> None:
+        for button in self.play_buttons:
+            button.state(["disabled"])
+        threading.Thread(
+            target=self._render, args=(self.info[index], self.book.chapters[index]), daemon=True
+        ).start()
+
+    def _render(self, info: chapters.ChapterInfo, chapter) -> None:
+        try:
+            self.events.put(("play", chapters.render_preview(info, chapter, self.cache)))
+        except (chapters.ChapterError, audio.AudioError) as exc:
+            self.events.put(("error", str(exc)))
+
+    def _enable(self) -> None:
+        for button in self.play_buttons:
+            button.state(["!disabled"])
+
+    def _drain(self) -> None:
+        if not self.top.winfo_exists():
+            return
+        while True:
+            try:
+                kind, payload = self.events.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "sizes":
+                for label, info in zip(self.sizes, payload):
+                    label.configure(text=chapters.format_seconds(info.seconds))
+            elif kind == "play":
+                try:
+                    chapters.open_preview(payload)
+                except chapters.ChapterError as exc:
+                    self.app._append(f"ERROR: {exc}")
+                self._enable()
+            else:
+                self.app._append(f"ERROR: {payload}")
+                self._enable()
+        self.top.after(100, self._drain)
+
+    def _close(self) -> None:
+        self.app.dropped = {
+            info.number for info, box in zip(self.info, self.keep) if not box.get()
+        }
+        self.packs.close()
+        self.top.destroy()
 
 
 class Options:
