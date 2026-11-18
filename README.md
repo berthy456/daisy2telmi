@@ -55,9 +55,23 @@ daisy2telmi --announce chapter --autoplay gon-ruby-mp3.zip stories
 
 The built binaries carry espeak-ng, its shared libraries and its language data, so speech works with nothing installed. Windows builds rely on the speech engine that ships with Windows.
 
+### Cover art
+
+DAISY 2.02 audio packs carry no cover, so the user supplies one:
+
+```bash
+daisy2telmi --cover cover.jpg gon-ruby-mp3.zip stories
+```
+
+ffmpeg centre-crops the picture to `640x480` for `title.png` and for every chapter card, and to `512x512` for `cover.png`. Each card gets its number drawn across the middle in white with a black border — `CHAPTER 2/23`, in the `--language` of the story — so the listener sees which chapter of how many is playing. Without `--cover` the images are the placeholders described under [Output](#output).
+
+The number is drawn by the converter rather than by ffmpeg: Homebrew's ffmpeg has no `drawtext`, so `src/daisy2telmi/images.py` carries a 5x7 bitmap font and ffmpeg only composites the result. The font is Latin, so Chinese and Arabic cards show `2/23` alone; the spoken card still says the word.
+
+The GUI has the same field below the output folder. The web page takes a cover from a file, from a link, or from a Google image search opened for the pack's title.
+
 ### GUI
 
-Running `daisy2telmi` with no arguments opens a Tkinter window: pick or drop a pack, pick an output folder, watch the same log the CLI writes. The conversion runs on a worker thread.
+Running `daisy2telmi` with no arguments opens a Tkinter window: pick or drop a pack, pick an output folder and an optional cover, watch the same log the CLI writes. The conversion runs on a worker thread.
 
 **Options** opens a second window with the interface language (the same ten), what the cards say, autoplay, the speech engine and the voice. Closing it writes `~/.config/daisy2telmi/settings.json` (`%APPDATA%\daisy2telmi\settings.json` on Windows), which the CLI reads too, so a flag like `--language` only overrides what is already saved.
 
@@ -81,12 +95,12 @@ stories/_00_Wesh la fee_292b74ca-d8be-53f9-a5d5-5224a36bbd02/
   nodes.json
   notes.json
   title.mp3      the pack's spoken title, played on the story's title screen
-  title.png      640x480 placeholder
-  cover.png      512x512 placeholder, referenced by metadata.json
+  title.png      640x480: the --cover picture, or a placeholder
+  cover.png      512x512 copy of the same, referenced by metadata.json
   audios/
     s0.mp3 ... sN.mp3      one per chapter
   images/
-    m0.png ... mN.png      640x480, the chapter number drawn on a placeholder
+    m0.png ... mN.png      640x480: the cover with `CHAPTER k/N` over it, or the number on a placeholder
 ```
 
 If the second argument already has the conventional name it is used directly instead of nesting.
@@ -201,12 +215,12 @@ pip install -e .[dev]
 pytest
 ```
 
-77 tests. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
+149 tests. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
 
 The browser modules have their own suite, run with Node's test runner:
 
 ```bash
-node --test tests/web/converter.test.mjs
+node --test tests/web/*.test.mjs
 ```
 
 ## What was verified
@@ -246,7 +260,8 @@ Builds:
 - **Synchronised text is ignored completely.** Only `<audio>` elements are read; `<text>` and the XHTML files are never opened. Safe for audio+text packs, but a text-only pack produces "no chapter with audio" and exits 2.
 - **TTS speaks the cards, not the book.** A book with no recorded audio still produces no chapters. The synthesised phrases are short and the default espeak-ng voice is robotic; `--tts command` is the way to get a better voice.
 - **The bundled ffmpeg is the build machine's binary**, unmodified and unsigned.
-- **No cover art from the pack.** `cover.png`, `title.png` and the chapter images are generated placeholders; DAISY 2.02 audio packs carry no usable cover.
+- **No cover art comes from the pack.** DAISY 2.02 audio packs carry no usable cover, so `--cover` supplies one; without it `cover.png`, `title.png` and the chapter images are generated placeholders.
+- **The drawn card label is uppercase Latin.** The bitmap font in `src/daisy2telmi/images.py` covers the eight Latin-script languages plus accented letters; Chinese and Arabic cards fall back to the bare number.
 - **A non-Latin title collapses in the folder name.** `stringNormalizeFileName` keeps only `a-zA-Z0-9-.`, so *ごんぎつね* becomes a single space and the folder is `_00_ _<uuid>`. This is Telmi-Sync's own behaviour, not a converter bug; `metadata.json` keeps the real title.
 - **Chapter granularity is fixed.** A pack with a single flat heading level becomes one chapter; there is no option to split on `h2`.
 - **No resume or bookmarking.** Telmi has no position concept in this format, so a listener restarts at chapter 1.
@@ -256,7 +271,7 @@ Builds:
 
 ## v3 candidates
 
-Cover art supplied by the user and reused on every chapter card with the chapter number over it, listening to each chapter before converting, dropping chapters from the pack, DAISY 3 (`.opf` + `.ncx` + SMIL 2.0), configurable granularity.
+Listening to each chapter before converting, dropping chapters from the pack, DAISY 3 (`.opf` + `.ncx` + SMIL 2.0), configurable granularity.
 
 ## Licence
 

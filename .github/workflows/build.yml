@@ -212,7 +212,7 @@ jobs:
         with:
           node-version: "22"
       - name: Test the browser modules
-        run: node --test tests/web/converter.test.mjs
+        run: node --test tests/web/*.test.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web

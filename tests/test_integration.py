@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from daisy2telmi import images
 from daisy2telmi.cli import main
 from daisy2telmi.telmi_builder import story_dir_name
 from nodes_validator import validate_story_dir, validate_story_zip
@@ -162,6 +163,31 @@ def test_a_corrupt_table_of_contents_fails_cleanly(tmp_path: Path) -> None:
     root.mkdir()
     (root / "ncc.html").write_text("", encoding="utf-8")
     assert main([str(root), str(tmp_path / "out")]) == 1
+
+
+@requires_pack
+def test_a_missing_cover_is_refused_before_the_audio_runs(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--cover", str(tmp_path / "nope.png")]) == 2
+    assert not out.exists()
+
+
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_a_cover_replaces_every_generated_image(tmp_path: Path, story: Path) -> None:
+    cover = tmp_path / "cover.png"
+    cover.write_bytes(images.placeholder_png(300, 200))
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--cover", str(cover), "--language", "fr"]) == 0
+
+    covered = next(entry for entry in out.iterdir() if entry.is_dir())
+    assert validate_story_dir(covered) == []
+    for name in (images.TITLE_IMAGE, images.COVER_IMAGE):
+        assert (covered / name).read_bytes() != (story / name).read_bytes()
+    cards = [covered / "images" / f"m{index}.png" for index in range(EXPECTED_CHAPTERS)]
+    assert all(card.read_bytes() != (story / "images" / card.name).read_bytes() for card in cards)
+    # The number is the only thing separating two cards drawn from one picture.
+    assert cards[0].read_bytes() != cards[1].read_bytes()
 
 
 MINIMAL_PACK = """<?xml version="1.0" encoding="utf-8"?>

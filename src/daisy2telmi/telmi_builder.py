@@ -5,25 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import re
-import struct
 import unicodedata
 import uuid
 import zipfile
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from . import audio, tts
+from . import audio, images, tts
 from .extractor import Book
 from .i18n import language
 
 log = logging.getLogger(__name__)
 
-TITLE_IMAGE = "title.png"
-COVER_IMAGE = "cover.png"
-IMAGE_SIZE = (640, 480)
-COVER_SIZE = (512, 512)
 _UUID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://wiki.telmi.fr/developments/daisy2telmi")
 
 # Telmi-Sync's readStoryMetadata() deletes any story folder missing one of these.
@@ -35,20 +29,6 @@ REQUIRED_ENTRIES = (
     "title.mp3",
     "title.png",
 )
-
-_DIGITS = {
-    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
-    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
-    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
-    "3": ("11111", "00010", "00100", "00010", "00001", "10001", "01110"),
-    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
-    "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
-    "6": ("01110", "10001", "10000", "11110", "10001", "10001", "01110"),
-    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
-    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
-    "9": ("01110", "10001", "10001", "01111", "00001", "10001", "01110"),
-}
-
 
 class StoryError(RuntimeError):
     """Raised when a story cannot be produced."""
@@ -120,7 +100,7 @@ def build_metadata(book: Book) -> dict:
     metadata = {
         "title": book.title,
         "uuid": story_uuid(book),
-        "image": COVER_IMAGE,
+        "image": images.COVER_IMAGE,
         "category": "",
         "version": 0,
         "age": 0,
@@ -199,52 +179,6 @@ def build_notes(book: Book) -> dict:
     return notes
 
 
-def _png(width: int, height: int, rows: list[bytes]) -> bytes:
-    def chunk(tag: bytes, payload: bytes) -> bytes:
-        body = tag + payload
-        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
-
-    raw = b"".join(b"\x00" + row for row in rows)
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", header)
-        + chunk(b"IDAT", zlib.compress(raw, 9))
-        + chunk(b"IEND", b"")
-    )
-
-
-def placeholder_png(width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]) -> bytes:
-    """A flat placeholder, written by hand so the converter needs no image library."""
-    background = (26, 30, 42)
-    band = (78, 92, 122)
-    band_top, band_bottom = height // 2 - 48, height // 2 + 48
-    rows = []
-    for y in range(height):
-        rgb = band if band_top <= y < band_bottom else background
-        rows.append(bytes(rgb) * width)
-    return _png(width, height, rows)
-
-
-def chapter_png(number: int, width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]) -> bytes:
-    """A placeholder carrying the chapter number, so scenes are tellable apart."""
-    background = (26, 30, 42)
-    foreground = (214, 222, 238)
-    glyph = [" ".join(_DIGITS[d][y] for d in str(number)) for y in range(7)]
-    scale = min(24, (width * 2 // 3) // len(glyph[0]), (height * 2 // 3) // len(glyph))
-    block_width, block_height = len(glyph[0]) * scale, len(glyph) * scale
-    left, top = (width - block_width) // 2, (height - block_height) // 2
-
-    canvas = [bytes(background) * width for _ in range(top)]
-    for glyph_row in glyph:
-        strip = b"".join(
-            bytes(foreground if ink == "1" else background) * scale for ink in glyph_row
-        )
-        canvas += [bytes(background) * left + strip + bytes(background) * (width - left - block_width)] * scale
-    canvas += [bytes(background) * width for _ in range(height - top - block_height)]
-    return _png(width, height, canvas)
-
-
 def build_card_audio(
     count: int, announce: Announce, audios: Path
 ) -> tuple[list[str | None], bool]:
@@ -273,21 +207,31 @@ def build_card_audio(
     return cards, len(cards)
 
 
-def build_story(book: Book, out_dir: Path, announce: Announce | None = None) -> StoryReport:
-    """Render every chapter to `audios/` and write the story's JSON files and images."""
+def build_story(
+    book: Book,
+    out_dir: Path,
+    announce: Announce | None = None,
+    cover: Path | None = None,
+) -> StoryReport:
+    """Render every chapter to `audios/` and write the story's JSON files and images.
+
+    `cover` is the user's picture: it becomes the title image, the cover and the
+    background of every card, which carries the chapter number and the total.
+    """
     if not book.chapters:
         raise StoryError("the pack contains no chapter with audio")
 
     audios = out_dir / "audios"
-    images = out_dir / "images"
+    scene = out_dir / "images"
     audios.mkdir(parents=True, exist_ok=True)
-    images.mkdir(parents=True, exist_ok=True)
+    scene.mkdir(parents=True, exist_ok=True)
 
     chapter_names = [f"s{k}" for k in range(len(book.chapters))]
     for name, index, chapter in zip(chapter_names, range(len(book.chapters)), book.chapters):
         log.info("rendering %s (%d audio clip group(s)) <- %s", name, len(chapter.segments), chapter.title)
         audio.render(chapter.segments, audios / f"{name}.mp3")
-        (images / f"m{index}.png").write_bytes(chapter_png(index + 1))
+        if cover is None:
+            (scene / f"m{index}.png").write_bytes(images.chapter_png(index + 1))
 
     cards = [None] * len(book.chapters)
     spoken = 0
@@ -307,8 +251,15 @@ def build_story(book: Book, out_dir: Path, announce: Announce | None = None) -> 
         audio.render_silence(title_path, 1.0)
         title_source = "generated silence"
 
-    (out_dir / TITLE_IMAGE).write_bytes(placeholder_png())
-    (out_dir / COVER_IMAGE).write_bytes(placeholder_png(*COVER_SIZE))
+    count = len(book.chapters)
+    if cover is not None:
+        code = announce.language if announce is not None else "en"
+        labels = [images.card_label(code, k + 1, count) for k in range(count)]
+        log.info("drawing %d card(s) from the cover %s", count, cover.name)
+        images.write_cover(cover, out_dir, labels)
+    else:
+        (out_dir / images.TITLE_IMAGE).write_bytes(images.placeholder_png())
+        (out_dir / images.COVER_IMAGE).write_bytes(images.placeholder_png(*images.COVER_SIZE))
 
     metadata = build_metadata(book)
     (out_dir / "metadata.json").write_text(

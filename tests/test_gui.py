@@ -48,6 +48,38 @@ def test_a_missing_pack_is_refused_before_any_work(app: gui.App) -> None:
     assert not Path("/tmp/daisy2telmi-never").exists()
 
 
+def test_a_missing_cover_is_refused_before_any_work(app: gui.App, tmp_path) -> None:
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app.cover_var.set(str(tmp_path / "nope.png"))
+    app._start()
+    app._drain()
+    assert "no such image" in app.log_view.get("1.0", "end")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_cover_reaches_the_converter(app: gui.App, tmp_path, monkeypatch) -> None:
+    seen: list = []
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+
+    cover = tmp_path / "cover.png"
+    cover.write_bytes(b"not really a png")
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app.cover_var.set(str(cover))
+    app._start()
+    app._drain()
+
+    assert seen[0][4] == cover
+    app.cover_var.set("")
+    seen.clear()
+    app._start()
+    app._drain()
+    assert seen[0][4] is None
+
+
 def test_a_dropped_path_becomes_the_pack(app: gui.App) -> None:
     if gui.DND_FILES is None:
         pytest.skip("tkinterdnd2 not installed")

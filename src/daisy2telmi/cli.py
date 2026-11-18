@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from . import __version__, audio, settings, tts
+from . import __version__, audio, images, settings, tts
 from .detector import DaisyPackError, open_pack
 from .extractor import extract
 from .i18n import LANGUAGES
@@ -37,6 +37,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="log every ffmpeg invocation")
     parser.add_argument("-f", "--force", action="store_true", help="write into the output folder even if it is not empty")
+    parser.add_argument(
+        "--cover",
+        metavar="IMAGE",
+        type=Path,
+        help="draw every chapter card over this picture instead of the placeholder",
+    )
     speech = parser.add_argument_group("chapter card speech")
     speech.add_argument(
         "--announce",
@@ -78,11 +84,18 @@ def announce_options(args: argparse.Namespace) -> Announce:
 
 
 def convert(
-    input_path: Path, output_dir: Path, force: bool = False, announce: Announce | None = None
+    input_path: Path,
+    output_dir: Path,
+    force: bool = False,
+    announce: Announce | None = None,
+    cover: Path | None = None,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     try:
         audio.require_ffmpeg()
+        if cover is not None and not cover.is_file():
+            log.error("no such cover image: %s", cover)
+            return 2
         with open_pack(input_path) as pack:
             log.info("pack root: %s", pack.root)
             book = extract(pack)
@@ -98,9 +111,9 @@ def convert(
                 log.error("%s is not empty; pass --force to overwrite", target)
                 return 2
             target.mkdir(parents=True, exist_ok=True)
-            report = build_story(book, target, announce)
+            report = build_story(book, target, announce, cover)
             zip_path = write_story_zip(target, target.parent)
-    except (DaisyPackError, StoryError, audio.AudioError) as exc:
+    except (DaisyPackError, StoryError, images.ImageError, audio.AudioError) as exc:
         log.error("%s", exc)
         return 1
 
@@ -125,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s: %(message)s",
         stream=sys.stderr,
     )
-    return convert(args.input, args.output, args.force, announce_options(args))
+    return convert(args.input, args.output, args.force, announce_options(args), args.cover)
 
 
 if __name__ == "__main__":

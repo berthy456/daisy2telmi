@@ -7,6 +7,7 @@ import struct
 import pytest
 
 from daisy2telmi import tts
+from daisy2telmi.images import chapter_png, placeholder_png
 from daisy2telmi.extractor import Book
 from daisy2telmi.telmi_builder import (
     Announce,
@@ -15,8 +16,6 @@ from daisy2telmi.telmi_builder import (
     build_metadata,
     build_nodes,
     build_notes,
-    chapter_png,
-    placeholder_png,
     story_dir_name,
     story_uuid,
 )

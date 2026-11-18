@@ -51,6 +51,7 @@ class App:
         self.options = dict(settings.DEFAULTS, **(options or settings.load()))
         self.pack_var = tk.StringVar()
         self.out_var = tk.StringVar()
+        self.cover_var = tk.StringVar()
         self.force_var = tk.BooleanVar(value=False)
         self.language_var = tk.StringVar(value=self.options["language"])
         self._labels: dict[str, tk.Widget] = {}
@@ -76,7 +77,7 @@ class App:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
-        grid.rowconfigure(5, weight=1)
+        grid.rowconfigure(6, weight=1)
 
         self._label(grid, "pack_label").grid(row=0, column=0, sticky="w")
         ttk.Entry(grid, textvariable=self.pack_var).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
@@ -89,8 +90,12 @@ class App:
         ttk.Entry(grid, textvariable=self.out_var).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self._button(grid, "browse_output", self._pick_out_dir).grid(row=3, column=2, sticky="e", padx=(6, 0))
 
+        self._label(grid, "cover_label").grid(row=4, column=0, sticky="w", pady=(0, 2))
+        ttk.Entry(grid, textvariable=self.cover_var).grid(row=4, column=1, sticky="ew", padx=(6, 0))
+        self._button(grid, "browse_cover", self._pick_cover).grid(row=4, column=2, sticky="e", padx=(6, 0))
+
         controls = ttk.Frame(grid)
-        controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        controls.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 8))
         self.convert_button = self._button(controls, "convert", self._start)
         self.convert_button.pack(side="left")
         self._button(controls, "options", self._open_options).pack(side="left", padx=12)
@@ -103,9 +108,9 @@ class App:
         self.progress.pack(side="right")
 
         self.log_view = tk.Text(grid, height=18, width=72, state="disabled", wrap="word")
-        self.log_view.grid(row=5, column=0, columnspan=3, sticky="nsew")
+        self.log_view.grid(row=6, column=0, columnspan=3, sticky="nsew")
         scroll = ttk.Scrollbar(grid, command=self.log_view.yview)
-        scroll.grid(row=5, column=3, sticky="ns")
+        scroll.grid(row=6, column=3, sticky="ns")
         self.log_view.configure(yscrollcommand=scroll.set)
 
         hint = self.t("drop_hint") if DND_FILES else self.t("drop_unavailable")
@@ -150,6 +155,13 @@ class App:
         if path:
             self.out_var.set(path)
 
+    def _pick_cover(self) -> None:
+        path = filedialog.askopenfilename(
+            filetypes=[("images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("all files", "*.*")]
+        )
+        if path:
+            self.cover_var.set(path)
+
     def _on_drop(self, event: tk.Event) -> None:
         dropped = self.root.tk.splitlist(event.data)
         if dropped:
@@ -173,17 +185,26 @@ class App:
         if not str(out_dir):
             self._append("ERROR: choose an output folder first")
             return
+        typed = self.cover_var.get().strip()
+        cover = Path(typed).expanduser() if typed else None
+        if cover is not None and not cover.exists():
+            self._append(f"ERROR: no such image: {cover}")
+            return
         out_dir.mkdir(parents=True, exist_ok=True)
 
         self.convert_button.state(["disabled"])
         self.progress.start(12)
         announce = self.announce()
         threading.Thread(
-            target=self._run, args=(source, out_dir, self.force_var.get(), announce), daemon=True
+            target=self._run,
+            args=(source, out_dir, self.force_var.get(), announce, cover),
+            daemon=True,
         ).start()
 
-    def _run(self, source: Path, out_dir: Path, force: bool, announce: Announce) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce)))
+    def _run(
+        self, source: Path, out_dir: Path, force: bool, announce: Announce, cover: Path | None
+    ) -> None:
+        self.events.put(("code", convert(source, out_dir, force, announce, cover)))
 
     def _drain(self) -> None:
         while True:
