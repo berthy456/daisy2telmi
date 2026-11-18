@@ -2,6 +2,9 @@
 
 Drop a pack on the window when tkinterdnd2 is installed; otherwise use the browse
 buttons. The conversion runs on a worker thread so the window stays responsive.
+
+The Options window holds the language and the speech settings; both are read from
+and written to `settings.py`, so the command line sees the same choices.
 """
 
 from __future__ import annotations
@@ -13,7 +16,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
+from . import settings, tts
 from .cli import convert
+from .i18n import LANGUAGES, text
+from .telmi_builder import Announce
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -22,6 +28,9 @@ except ImportError:  # drag and drop is a bonus, browsing works without it
     TkinterDnD = None
 
 log = logging.getLogger("daisy2telmi")
+
+ANNOUNCE_MODES = ("prompt", "chapter", "off")
+ANNOUNCE_KEYS = {"prompt": "announce_prompt", "chapter": "announce_chapter", "off": "announce_off"}
 
 
 class _QueueHandler(logging.Handler):
@@ -36,14 +45,30 @@ class _QueueHandler(logging.Handler):
 
 
 class App:
-    def __init__(self, root: tk.Misc) -> None:
+    def __init__(self, root: tk.Misc, options: dict | None = None) -> None:
         self.root = root
         self.events: queue.Queue = queue.Queue()
+        self.options = dict(settings.DEFAULTS, **(options or settings.load()))
         self.pack_var = tk.StringVar()
         self.out_var = tk.StringVar()
         self.force_var = tk.BooleanVar(value=False)
+        self.language_var = tk.StringVar(value=self.options["language"])
+        self._labels: dict[str, tk.Widget] = {}
         self._build()
         root.after(100, self._drain)
+
+    def t(self, key: str) -> str:
+        return text(self.language_var.get(), key)
+
+    def _label(self, parent: tk.Widget, key: str, **kwargs) -> ttk.Label:
+        widget = ttk.Label(parent, text=self.t(key), **kwargs)
+        self._labels[key] = widget
+        return widget
+
+    def _button(self, parent: tk.Widget, key: str, command, **kwargs) -> ttk.Button:
+        widget = ttk.Button(parent, text=self.t(key), command=command, **kwargs)
+        self._labels[key] = widget
+        return widget
 
     def _build(self) -> None:
         grid = ttk.Frame(self.root, padding=12)
@@ -53,24 +78,27 @@ class App:
         grid.columnconfigure(1, weight=1)
         grid.rowconfigure(5, weight=1)
 
-        ttk.Label(grid, text="DAISY pack").grid(row=0, column=0, sticky="w")
+        self._label(grid, "pack_label").grid(row=0, column=0, sticky="w")
         ttk.Entry(grid, textvariable=self.pack_var).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         buttons = ttk.Frame(grid)
         buttons.grid(row=1, column=2, sticky="e", padx=(6, 0))
-        ttk.Button(buttons, text="Zip…", command=self._pick_pack_file).pack(side="left")
-        ttk.Button(buttons, text="Folder…", command=self._pick_pack_dir).pack(side="left", padx=(4, 0))
+        self._button(buttons, "browse_zip", self._pick_pack_file).pack(side="left")
+        self._button(buttons, "browse_folder", self._pick_pack_dir).pack(side="left", padx=(4, 0))
 
-        ttk.Label(grid, text="Output folder").grid(row=2, column=0, sticky="w")
+        self._label(grid, "output_label").grid(row=2, column=0, sticky="w")
         ttk.Entry(grid, textvariable=self.out_var).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        ttk.Button(grid, text="Choose…", command=self._pick_out_dir).grid(row=3, column=2, sticky="e", padx=(6, 0))
+        self._button(grid, "browse_output", self._pick_out_dir).grid(row=3, column=2, sticky="e", padx=(6, 0))
 
         controls = ttk.Frame(grid)
         controls.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(0, 8))
-        self.convert_button = ttk.Button(controls, text="Convert", command=self._start)
+        self.convert_button = self._button(controls, "convert", self._start)
         self.convert_button.pack(side="left")
-        ttk.Checkbutton(controls, text="overwrite an existing story folder", variable=self.force_var).pack(
-            side="left", padx=12
+        self._button(controls, "options", self._open_options).pack(side="left", padx=12)
+        self.force_box = ttk.Checkbutton(
+            controls, text=self.t("overwrite"), variable=self.force_var
         )
+        self._labels["overwrite"] = self.force_box
+        self.force_box.pack(side="left", padx=12)
         self.progress = ttk.Progressbar(controls, mode="indeterminate", length=140)
         self.progress.pack(side="right")
 
@@ -80,12 +108,32 @@ class App:
         scroll.grid(row=5, column=3, sticky="ns")
         self.log_view.configure(yscrollcommand=scroll.set)
 
-        hint = "Drop a DAISY pack anywhere in this window, or use the buttons above."
-        self._append(hint if DND_FILES else "Install tkinterdnd2 to drop a pack on the window.")
+        hint = self.t("drop_hint") if DND_FILES else self.t("drop_unavailable")
+        self._append(hint)
 
         if DND_FILES:
             self.root.drop_target_register(DND_FILES)
             self.root.dnd_bind("<<Drop>>", self._on_drop)
+
+    def _relabel(self) -> None:
+        self.root.title(self.t("app_title"))
+        for key, widget in self._labels.items():
+            widget.configure(text=self.t(key))
+        if not DND_FILES:
+            self._append(self.t("drop_unavailable"))
+
+    def _open_options(self) -> None:
+        Options(self)
+
+    def announce(self) -> Announce:
+        return Announce(
+            mode=self.options["announce"],
+            language=self.language_var.get(),
+            autoplay=self.options["autoplay"],
+            engine=self.options["tts"],
+            voice=self.options["voice"],
+            command=self.options["command"],
+        )
 
     def _pick_pack_file(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("DAISY packs", "*.zip"), ("all files", "*.*")])
@@ -129,10 +177,13 @@ class App:
 
         self.convert_button.state(["disabled"])
         self.progress.start(12)
-        threading.Thread(target=self._run, args=(source, out_dir, self.force_var.get()), daemon=True).start()
+        announce = self.announce()
+        threading.Thread(
+            target=self._run, args=(source, out_dir, self.force_var.get(), announce), daemon=True
+        ).start()
 
-    def _run(self, source: Path, out_dir: Path, force: bool) -> None:
-        self.events.put(("code", convert(source, out_dir, force)))
+    def _run(self, source: Path, out_dir: Path, force: bool, announce: Announce) -> None:
+        self.events.put(("code", convert(source, out_dir, force, announce)))
 
     def _drain(self) -> None:
         while True:
@@ -148,6 +199,104 @@ class App:
                 self._append(item)
 
         self.root.after(100, self._drain)
+
+
+class Options:
+    """Language and speech settings, saved when the window closes.
+
+    The boxes show translated names, so each one keeps its own list of keys in
+    the same order as the values it displays and reads the choice back by index.
+    """
+
+    def __init__(self, app: App) -> None:
+        self.app = app
+        self.top = tk.Toplevel(app.root)
+        self.top.title(app.t("opt_title"))
+        self.top.resizable(False, False)
+
+        self.language_keys = list(LANGUAGES)
+        self.announce_keys = list(ANNOUNCE_MODES)
+        self.engine_keys = ["auto"] + [engine.name for engine in tts.engines()] + ["off"]
+
+        grid = ttk.Frame(self.top, padding=12)
+        grid.grid(sticky="nsew")
+        grid.columnconfigure(1, weight=1)
+
+        self.language_box = self._combo(self.language_keys, app.options["language"])
+        self.announce_box = self._combo(self.announce_keys, app.options["announce"])
+        self.engine_box = self._combo(self.engine_keys, app.options["tts"])
+        self.voice_box = self._combo([None], app.options["voice"])
+        self.autoplay_var = tk.BooleanVar(value=bool(app.options["autoplay"]))
+
+        self._row(grid, "opt_language", 0, self.language_box)
+        self._row(grid, "opt_announce", 1, self.announce_box)
+        self._row(grid, "opt_autoplay", 2, ttk.Checkbutton(grid, variable=self.autoplay_var))
+        self._row(grid, "opt_engine", 3, self.engine_box)
+        self._row(grid, "opt_voice", 4, self.voice_box)
+        ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
+            row=5, column=0, columnspan=2, sticky="e", pady=(12, 0)
+        )
+
+        self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
+        self.language_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
+        self._fill_voices()
+
+    def _label_text(self, key: str | None) -> str:
+        if key is None:
+            return self.app.t("voice_default")
+        if key == "auto":
+            return self.app.t("engine_auto")
+        if key == "off":
+            return self.app.t("engine_off")
+        if key in ANNOUNCE_KEYS:
+            return self.app.t(ANNOUNCE_KEYS[key])
+        if key in LANGUAGES:
+            return f"{key} - {LANGUAGES[key].name}"
+        return next((e.label for e in tts.engines() if e.name == key), key)
+
+    def _combo(self, keys: list[str | None], current: str | None) -> ttk.Combobox:
+        box = ttk.Combobox(self.top, values=[self._label_text(k) for k in keys], state="readonly", width=26)
+        box.set(self._label_text(current if current in keys else keys[0]))
+        return box
+
+    def _chosen(self, box: ttk.Combobox, keys: list[str | None]) -> str | None:
+        labels = [self._label_text(k) for k in keys]
+        try:
+            return keys[labels.index(box.get())]
+        except ValueError:
+            return keys[0]
+
+    def _row(self, grid: ttk.Frame, key: str, row: int, widget: tk.Widget) -> None:
+        ttk.Label(grid, text=self.app.t(key)).grid(row=row, column=0, sticky="w", pady=4)
+        widget.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=4)
+
+    def _fill_voices(self) -> None:
+        code = self._chosen(self.language_box, self.language_keys)
+        engine = self._chosen(self.engine_box, self.engine_keys)
+        names: list[str | None] = [None]
+        if engine not in (None, "auto", "off"):
+            names += tts.voices(engine, LANGUAGES.get(code, LANGUAGES["en"]))
+        self.voice_keys = names
+        self.voice_box.configure(values=[self._label_text(k) for k in names])
+        self.voice_box.set(self._label_text(None))
+
+    def _close(self) -> None:
+        self.app.options.update(
+            {
+                "language": self._chosen(self.language_box, self.language_keys),
+                "announce": self._chosen(self.announce_box, self.announce_keys),
+                "autoplay": self.autoplay_var.get(),
+                "tts": self._chosen(self.engine_box, self.engine_keys),
+                "voice": self._chosen(self.voice_box, self.voice_keys),
+            }
+        )
+        self.app.language_var.set(self.app.options["language"])
+        self.app._relabel()
+        try:
+            settings.save(self.app.options)
+        except OSError as exc:
+            self.app._append(f"ERROR: could not save options: {exc}")
+        self.top.destroy()
 
 
 def attach_log_handler(app: App) -> logging.Handler:
@@ -167,11 +316,11 @@ def make_root() -> tk.Misc:
 
 def run_gui() -> int:
     root = make_root()
-    root.title("daisy2telmi")
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
 
     app = App(root)
+    root.title(app.t("app_title"))
     handler = attach_log_handler(app)
     try:
         root.mainloop()

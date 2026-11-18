@@ -57,3 +57,44 @@ def test_a_dropped_path_becomes_the_pack(app: gui.App) -> None:
 
     app._on_drop(Event())
     assert app.pack_var.get() == "/tmp/some pack.zip"
+
+
+def test_the_window_labels_follow_the_language(app: gui.App) -> None:
+    app.language_var.set("fr")
+    app._relabel()
+    assert app._labels["convert"].cget("text") == "Convertir"
+    assert app._labels["overwrite"].cget("text").startswith("Ecraser")
+
+
+def test_the_options_page_saves_what_it_shows(app: gui.App, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    page = gui.Options(app)
+    page.language_box.set("fr - Francais")
+    page.autoplay_var.set(True)
+    page._close()
+
+    assert app.options["language"] == "fr"
+    assert app.options["autoplay"] is True
+    saved = (tmp_path / "daisy2telmi" / "config.json").read_text(encoding="utf-8")
+    assert '"language": "fr"' in saved
+    assert app._labels["convert"].cget("text") == "Convertir"
+
+
+def test_the_voice_list_follows_the_engine_and_language(app: gui.App) -> None:
+    page = gui.Options(app)
+    page.language_box.set("fr - Francais")
+    espeak = next(e for e in gui.tts.engines() if e.name == "espeak")
+    if not espeak.found:
+        pytest.skip("no espeak-ng on this machine")
+    page.engine_box.set(espeak.label)
+    page._fill_voices()
+    assert any("French" in name or "fr" in name for name in page.voice_box.cget("values"))
+
+
+def test_the_announcement_setting_reaches_the_converter(app: gui.App) -> None:
+    app.options.update({"announce": "chapter", "tts": "off"})
+    app.language_var.set("de")
+    announce = app.announce()
+    assert announce.mode == "chapter"
+    assert announce.engine == "off"
+    assert announce.phrase(2) == "Kapitel 2"

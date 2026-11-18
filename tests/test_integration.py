@@ -196,4 +196,6 @@ def test_force_reuses_an_existing_output_folder(tmp_path: Path) -> None:
     assert main([str(PACK), str(out)]) == 0
     assert main([str(PACK), str(out), "--force"]) == 0
     story_folder = next(entry for entry in out.iterdir() if entry.is_dir())
-    assert len(list((story_folder / "audios").glob("*.mp3"))) == EXPECTED_CHAPTERS
+    audios = story_folder / "audios"
+    assert len(list(audios.glob("s*.mp3"))) == EXPECTED_CHAPTERS
+    assert len(list(audios.glob("c*.mp3"))) == EXPECTED_CHAPTERS

@@ -6,9 +6,12 @@ import struct
 
 import pytest
 
+from daisy2telmi import tts
 from daisy2telmi.extractor import Book
 from daisy2telmi.telmi_builder import (
+    Announce,
     StoryError,
+    build_card_audio,
     build_metadata,
     build_nodes,
     build_notes,
@@ -157,3 +160,31 @@ def test_chapter_png_is_a_valid_image_that_differs_per_chapter() -> None:
         width, height = struct.unpack(">II", data[16:24])
         assert (width, height) == (640, 480)
     assert chapter_png(1) != chapter_png(2)
+
+
+def test_a_card_can_carry_spoken_audio_and_autoplay() -> None:
+    nodes = build_nodes(SAMPLE, ["c0.mp3", "c1.mp3", "c2.mp3"], card_autoplay=True)
+    assert validate_nodes(nodes) == []
+    assert nodes["stages"]["m1"]["audio"] == "c1.mp3"
+    assert nodes["stages"]["m1"]["control"]["autoplay"] is True
+
+
+def test_cards_stay_silent_by_default() -> None:
+    nodes = build_nodes(SAMPLE)
+    assert all(stage["audio"] is None for name, stage in nodes["stages"].items() if name.startswith("m"))
+    assert all(stage["control"]["autoplay"] is False for name, stage in nodes["stages"].items() if name.startswith("m"))
+
+
+def test_an_announcement_phrase_carries_the_chapter_number() -> None:
+    assert Announce(language="fr").phrase(3) == "Chapitre 3 Ecouter le chapitre suivant ?"
+    assert Announce(mode="chapter", language="nl").phrase(2) == "Hoofdstuk 2"
+    assert Announce(mode="off").phrase(1) is None
+
+
+def test_one_failing_engine_leaves_every_card_silent(tmp_path) -> None:
+    absent = next((e.name for e in tts.engines() if not e.found), None)
+    if absent is None:
+        pytest.skip("this machine has every speech engine")
+    cards, spoken = build_card_audio(3, Announce(engine=absent), tmp_path)
+    assert cards == [None, None, None]
+    assert spoken == 0

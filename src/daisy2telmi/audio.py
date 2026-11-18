@@ -23,14 +23,19 @@ class AudioError(RuntimeError):
     """Raised when ffmpeg is missing or a render fails."""
 
 
-def bundled_ffmpeg() -> Path | None:
-    """An ffmpeg shipped inside a PyInstaller bundle, if the build included one."""
+def bundled_executable(name: str) -> Path | None:
+    """A helper binary shipped inside a PyInstaller bundle, if the build included one."""
     if not getattr(sys, "frozen", False):
         return None
-    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-    candidates = [Path(sys._MEIPASS) / name] if hasattr(sys, "_MEIPASS") else []
-    candidates.append(Path(sys.executable).parent / name)
+    exe = f"{name}.exe" if os.name == "nt" else name
+    candidates = [Path(sys._MEIPASS) / exe] if hasattr(sys, "_MEIPASS") else []
+    candidates.append(Path(sys.executable).parent / exe)
     return next((c for c in candidates if c.is_file()), None)
+
+
+def bundled_ffmpeg() -> Path | None:
+    """An ffmpeg shipped inside a PyInstaller bundle, if the build included one."""
+    return bundled_executable("ffmpeg")
 
 
 def ffmpeg_executable() -> str | None:
@@ -105,6 +110,30 @@ def render(segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | 
         str(dest),
     ]
     _run(args, f"could not render {Path(dest).name}")
+
+
+def convert_to_spec(src: str | Path, dest: str | Path) -> None:
+    """Re-encode one existing audio file to the Telmi spec."""
+    exe = require_ffmpeg()
+    args = [
+        exe,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(src),
+        "-ar",
+        str(SAMPLE_RATE),
+        "-ac",
+        str(CHANNELS),
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        BITRATE,
+        str(dest),
+    ]
+    _run(args, f"could not convert {Path(src).name} to {Path(dest).name}")
 
 
 def render_silence(dest: str | Path, seconds: float = 1.0) -> None:

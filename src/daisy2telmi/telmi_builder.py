@@ -14,8 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from . import audio
+from . import audio, tts
 from .extractor import Book
+from .i18n import language
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,30 @@ class StoryReport:
     out_dir: Path
     stages: tuple[str, ...]
     title_source: str
+    cards: int = 0
+
+
+@dataclass(frozen=True)
+class Announce:
+    """What each chapter card says, and whether the story advances by itself.
+
+    `prompt` is the default because the player stops at the end of a chapter:
+    the card has to say which chapter is next and that OK starts it.
+    """
+
+    mode: str = "prompt"
+    language: str = "en"
+    autoplay: bool = False
+    engine: str = tts.AUTO
+    voice: str | None = None
+    command: str | None = None
+
+    def phrase(self, number: int) -> str | None:
+        if self.mode == "off":
+            return None
+        lang = language(self.language)
+        chapter = lang.chapter.format(n=number)
+        return f"{chapter} {lang.next_prompt}" if self.mode == "prompt" else chapter
 
 
 def story_uuid(book: Book) -> str:
@@ -121,15 +146,26 @@ def build_metadata(book: Book) -> dict:
     return metadata
 
 
-def build_nodes(chapter_names: Sequence[str]) -> dict:
+def build_nodes(
+    chapter_names: Sequence[str],
+    card_audio: Sequence[str | None] | None = None,
+    card_autoplay: bool = False,
+) -> dict:
     """Chapter-menu `nodes.json`, mirroring Telmi-Sync's own audio-list generator.
 
-    `m<k>` is a silent menu card naming chapter k, `s<k>` the chapter audio.
+    `m<k>` is a menu card naming chapter k, `s<k>` the chapter audio.
     `ok` on the last chapter is null: the published packs use null, not a
     wrap-around, to end a story.
+
+    A card plays its `audio` as soon as it is drawn, whether or not autoplay is
+    on (`readStage` calls `audio_play` for any defined audio); autoplay only
+    decides whether the player waits for OK afterwards.
     """
     if not chapter_names:
         raise StoryError("no chapters to build a story from")
+
+    if card_audio is None:
+        card_audio = [None] * len(chapter_names)
 
     stages: dict[str, dict] = {}
     actions: dict[str, list[dict]] = {"m": [{"stage": f"m{k}"} for k in range(len(chapter_names))]}
@@ -137,10 +173,10 @@ def build_nodes(chapter_names: Sequence[str]) -> dict:
     for k in range(len(chapter_names)):
         stages[f"m{k}"] = {
             "image": f"m{k}.png",
-            "audio": None,
+            "audio": card_audio[k],
             "ok": {"action": f"s{k}", "index": 0},
             "home": None,
-            "control": {"ok": True, "home": True, "autoplay": False},
+            "control": {"ok": True, "home": True, "autoplay": card_autoplay},
         }
         stages[f"s{k}"] = {
             "image": None,
@@ -209,7 +245,35 @@ def chapter_png(number: int, width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZ
     return _png(width, height, canvas)
 
 
-def build_story(book: Book, out_dir: Path) -> StoryReport:
+def build_card_audio(
+    count: int, announce: Announce, audios: Path
+) -> tuple[list[str | None], bool]:
+    """Speak one announcement per card. A first failure stops the rest: the same
+    engine would fail again, and a silent card is still a valid story."""
+    cards: list[str | None] = []
+    for k in range(count):
+        phrase = announce.phrase(k + 1)
+        if phrase is None:
+            cards.append(None)
+            continue
+        name = f"c{k}.mp3"
+        try:
+            tts.synthesize(
+                phrase,
+                announce.language,
+                audios / name,
+                engine=announce.engine,
+                voice=announce.voice,
+                command=announce.command,
+            )
+        except (tts.TtsError, audio.AudioError) as exc:
+            log.warning("chapter cards stay silent: %s", exc)
+            return [None] * count, 0
+        cards.append(name)
+    return cards, len(cards)
+
+
+def build_story(book: Book, out_dir: Path, announce: Announce | None = None) -> StoryReport:
     """Render every chapter to `audios/` and write the story's JSON files and images."""
     if not book.chapters:
         raise StoryError("the pack contains no chapter with audio")
@@ -224,6 +288,12 @@ def build_story(book: Book, out_dir: Path) -> StoryReport:
         log.info("rendering %s (%d audio clip group(s)) <- %s", name, len(chapter.segments), chapter.title)
         audio.render(chapter.segments, audios / f"{name}.mp3")
         (images / f"m{index}.png").write_bytes(chapter_png(index + 1))
+
+    cards = [None] * len(book.chapters)
+    spoken = 0
+    if announce is not None and announce.mode != "off":
+        log.info("speaking %d chapter card(s) in %s", len(book.chapters), language(announce.language).name)
+        cards, spoken = build_card_audio(len(book.chapters), announce, audios)
 
     # The player plays title.mp3 when the story is selected, so the pack's own
     # spoken title belongs there rather than in a second stage inside the story.
@@ -245,14 +315,21 @@ def build_story(book: Book, out_dir: Path) -> StoryReport:
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     (out_dir / "nodes.json").write_text(
-        json.dumps(build_nodes(chapter_names), ensure_ascii=False, indent=2) + "\n",
+        json.dumps(
+            build_nodes(chapter_names, cards, announce.autoplay if announce else False),
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     (out_dir / "notes.json").write_text(
         json.dumps(build_notes(book), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
-    return StoryReport(out_dir=out_dir, stages=tuple(chapter_names), title_source=title_source)
+    return StoryReport(
+        out_dir=out_dir, stages=tuple(chapter_names), title_source=title_source, cards=spoken
+    )
 
 
 def write_story_zip(story_dir: Path, parent: Path) -> Path:
