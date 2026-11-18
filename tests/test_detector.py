@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from daisy2telmi.detector import DaisyPackError, detect, open_pack
+from daisy2telmi.detector import DaisyPackError, detect, find_telmi, open_pack
 
 NCC = """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "xhtml1-transitional.dtd">
@@ -131,4 +131,40 @@ def test_open_pack_rejects_a_non_zip_file(tmp_path: Path) -> None:
     (tmp_path / "plain.zip").write_text("not an archive", encoding="utf-8")
     with pytest.raises(DaisyPackError, match="readable"):
         with open_pack(tmp_path / "plain.zip"):
+            pass
+
+
+def write_telmi_story(root: Path) -> Path:
+    story = root / "story"
+    for name in ("metadata.json", "nodes.json", "title.mp3", "title.png"):
+        (story / name).parent.mkdir(parents=True, exist_ok=True)
+        (story / name).write_bytes(b"x")
+    return story
+
+
+def test_find_telmi_recognises_a_story_folder(tmp_path: Path) -> None:
+    story = write_telmi_story(tmp_path)
+    assert find_telmi(tmp_path) == story
+
+
+def test_find_telmi_ignores_a_pack_missing_a_marker(tmp_path: Path) -> None:
+    write_telmi_story(tmp_path)
+    (tmp_path / "story" / "nodes.json").unlink()
+    assert find_telmi(tmp_path) is None
+
+
+def test_a_telmi_story_says_so_instead_of_blaming_the_table_of_contents(tmp_path: Path) -> None:
+    write_telmi_story(tmp_path)
+    with pytest.raises(DaisyPackError, match="already a Telmi story"):
+        with open_pack(tmp_path / "story"):
+            pass
+
+
+def test_a_telmi_archive_says_so_too(tmp_path: Path) -> None:
+    archive = tmp_path / "story.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for name in ("metadata.json", "nodes.json", "title.mp3", "title.png"):
+            zf.writestr(f"story/{name}", "x")
+    with pytest.raises(DaisyPackError, match="already a Telmi story"):
+        with open_pack(archive):
             pass

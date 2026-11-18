@@ -63,6 +63,23 @@ export function findPack(entries) {
   return null;
 }
 
+const TELMI_MARKERS = ["metadata.json", "nodes.json", "title.mp3", "title.png"];
+
+/** The folder holding every Telmi story marker, when the input is already a Telmi pack. */
+export function findTelmiDir(entries) {
+  const byDir = new Map();
+  for (const entry of entries) {
+    if (isIgnored(entry.name)) continue;
+    const dir = dirName(entry.name);
+    if (!byDir.has(dir)) byDir.set(dir, new Set());
+    byDir.get(dir).add(entry.name.split("/").pop().toLowerCase());
+  }
+  for (const [dir, names] of byDir) {
+    if (TELMI_MARKERS.every((name) => names.has(name))) return dir;
+  }
+  return null;
+}
+
 function npt(value) {
   if (!value) return null;
   let text = value.trim();
@@ -109,7 +126,15 @@ export class DaisyError extends Error {}
 /** Entries as [{name, data}] from a DAISY 2.02 pack; returns the book structure. */
 export function extractBook(entries) {
   const pack = findPack(entries);
-  if (!pack) throw new DaisyError("no DAISY 2.02 table of contents (ncc.html or *.ncx) found");
+  if (!pack) {
+    if (findTelmiDir(entries)) {
+      throw new DaisyError(
+        "this is already a Telmi story (metadata.json, nodes.json, title.mp3, title.png), not a DAISY 2.02 pack. " +
+          "A Telmi zip goes straight onto the story teller; convert the original DAISY pack instead."
+      );
+    }
+    throw new DaisyError("no DAISY 2.02 table of contents (ncc.html or *.ncx) found");
+  }
 
   const decoder = new TextDecoder("utf-8");
   const byName = new Map(entries.map((entry) => [normalizePath(entry.name), entry]));

@@ -40,9 +40,26 @@ daisy2telmi --force gon-ruby-mp3.zip stories     # overwrite an existing story f
 
 Exit codes: `0` success, `1` pack unreadable or ffmpeg failed, `2` bad arguments / not a DAISY pack / story folder already exists.
 
+### Spoken chapter cards
+
+A chapter card can speak when it appears, so a listener who cannot see the screen knows where the book is:
+
+```bash
+daisy2telmi --announce prompt --language fr gon-ruby-mp3.zip stories
+daisy2telmi --announce chapter --autoplay gon-ruby-mp3.zip stories
+```
+
+`--announce` chooses what the card says: `off`, the chapter number (`chapter`), or the number plus a question inviting OK (`prompt`, the default). If no speech engine is found the run logs a warning and the cards stay silent — the story is still valid. The player plays a card's audio as soon as it draws the card, whether or not autoplay is on; `--autoplay` only decides whether it then advances by itself or waits for OK.
+
+`--language` sets the phrase and the voice — `ar, de, en, es, fr, it, nl, pt, tr, zh` (`src/daisy2telmi/i18n.py` holds the wording). `--tts` picks the engine: `auto` (espeak-ng, then macOS `say`, then Windows speech), `espeak`, `say`, `sapi` or `command`. `--tts-voice` names a voice, and `--tts-command` is a template with `{text}`, `{out}`, `{lang}`, `{locale}` and `{voice}`, which is how any other engine — a Chatterbox-style model, for instance — gets used.
+
+The built binaries carry espeak-ng, its shared libraries and its language data, so speech works with nothing installed. Windows builds rely on the speech engine that ships with Windows.
+
 ### GUI
 
 Running `daisy2telmi` with no arguments opens a Tkinter window: pick or drop a pack, pick an output folder, watch the same log the CLI writes. The conversion runs on a worker thread.
+
+**Options** opens a second window with the interface language (the same ten), what the cards say, autoplay, the speech engine and the voice. Closing it writes `~/.config/daisy2telmi/settings.json` (`%APPDATA%\daisy2telmi\settings.json` on Windows), which the CLI reads too, so a flag like `--language` only overrides what is already saved.
 
 Drag-and-drop needs the optional `tkinterdnd2` (`pip install -e .[gui]`); without it the browse buttons work and the window says so. `build_binary.py` passes `--collect-all tkinterdnd2` when it is installed, so the built binaries get drop support.
 
@@ -168,9 +185,12 @@ Produces `dist\daisy2telmi.exe` (`dist/daisy2telmi` on macOS and Linux). `lxml.e
 
 | Artifact | Built on | Notes |
 | :--- | :--- | :--- |
-| `daisy2telmi.exe` | `windows-latest` | ffmpeg bundled |
+| `daisy2telmi.exe` | `windows-latest` | ffmpeg bundled; speech uses the Windows engine |
 | `daisy2telmi_<version>_<arch>.deb` | `ubuntu-latest` | installs to `/usr/local/bin/daisy2telmi`, declares `ffmpeg` as a dependency rather than duplicating it |
-| `daisy2telmi-<version>-macos-<arch>.dmg` | `macos-latest` | **unsigned and un-notarised**: Gatekeeper blocks the first run, so open it with right-click → Open or `xattr -d com.apple.quarantine daisy2telmi` |
+| `daisy2telmi-<version>-x86_64.AppImage` | `ubuntu-latest` | the same binary, packaged by `tools/make_appimage.py`; `appimagetool` is unpacked with `--appimage-extract` because runners have no FUSE |
+| `daisy2telmi-<version>-macos-<arch>.dmg` | `macos-latest` (arm64) and `macos-15-intel` (x86_64) | **unsigned and un-notarised**: Gatekeeper blocks the first run, so open it with right-click → Open or `xattr -d com.apple.quarantine daisy2telmi` |
+
+The Linux and macOS builds also bundle espeak-ng, the libraries it links and its language data. `build_binary.py` copies them to `dist/speech/` and rewrites the macOS load commands to `@loader_path`; at runtime `tts.py` points `ESPEAK_DATA_PATH` at the copied data and, on Linux, `LD_LIBRARY_PATH` at the copied libraries. The `linux-deb` job removes the `espeak-ng` package before its smoke test so the run has to use the bundled copy.
 
 The `.deb` is written by `tools/make_deb.py` using only the standard library, so it can be produced and checked on any OS without `dpkg` or `fakeroot`.
 
@@ -213,18 +233,18 @@ The browser converter (`web/`), run under Node against both packs:
 - Its output passes `validate_story_dir` and `validate_story_zip`, the same checks the CLI output is held to.
 - Concatenated audio decodes as MP3 at the source rate; the 6 chapters total 1372.4 s against the CLI's 1369.4 s. The 3 s difference is encoder padding left at the end of each source file, which the CLI trims.
 - Conversion time: 0.5 s for the 22-minute Japanese pack, 2.7 s for the 2 h 18 French one.
-- Driven in headless Chrome against `gon-ruby-mp3.zip`: the zip picker and the folder picker each produce a downloadable zip that passes `validate_story_zip` and `validate_story_dir`, with no page errors.
+- Driven in headless Chrome against `gon-ruby-mp3.zip`: the zip picker and the folder picker each produce a downloadable zip that passes `validate_story_zip` and `validate_story_dir`, with no page errors. The download link is hidden until a story exists, and feeding a converted story back to the page reports that it is already a Telmi story.
 
 Builds:
 
-- A `--onefile` PyInstaller build runs the whole conversion end to end with lxml bundled, and again with `PATH=/usr/bin:/bin` using the ffmpeg embedded in the bundle.
+- A `--onefile` PyInstaller build runs the whole conversion end to end with lxml bundled, and again with `PATH=/usr/bin:/bin` using the ffmpeg embedded in the bundle. That stripped-`PATH` run also spoke 6 French chapter cards through the bundled espeak-ng, whose load commands point at `@loader_path` and whose data comes from the copied `espeak-ng-data`.
 - GitHub Actions builds and smoke-tests `daisy2telmi.exe` on a Windows runner, the `.deb` on Ubuntu and the `.dmg` on macOS.
 
 ## Known limitations
 
 - **DAISY 3 is not supported.** Only DAISY 2.02 `ncc.html` is parsed in practice. There is a DAISY 2 XML `.ncx` fallback, but it has never been run against a real pack — treat it as unproven.
 - **Synchronised text is ignored completely.** Only `<audio>` elements are read; `<text>` and the XHTML files are never opened. Safe for audio+text packs, but a text-only pack produces "no chapter with audio" and exits 2.
-- **No TTS.** Books without recorded audio are out of scope.
+- **TTS speaks the cards, not the book.** A book with no recorded audio still produces no chapters. The synthesised phrases are short and the default espeak-ng voice is robotic; `--tts command` is the way to get a better voice.
 - **The bundled ffmpeg is the build machine's binary**, unmodified and unsigned.
 - **No cover art from the pack.** `cover.png`, `title.png` and the chapter images are generated placeholders; DAISY 2.02 audio packs carry no usable cover.
 - **A non-Latin title collapses in the folder name.** `stringNormalizeFileName` keeps only `a-zA-Z0-9-.`, so *ごんぎつね* becomes a single space and the folder is `_00_ _<uuid>`. This is Telmi-Sync's own behaviour, not a converter bug; `metadata.json` keeps the real title.
@@ -234,9 +254,9 @@ Builds:
 - **The web page cannot trim clips.** A SMIL that plays part of a file yields the whole file. Both test packs use whole files, so this has not been hit in practice.
 - **The web page needs a recent browser.** It relies on `DecompressionStream`/`CompressionStream` (Chrome 80+, Firefox 113+, Safari 16.4+) and `crypto.subtle`, which requires a secure context — `https://` or `localhost`.
 
-## v2 candidates
+## v3 candidates
 
-DAISY 3 (`.opf` + `.ncx` + SMIL 2.0), spoken chapter cards (TTS), configurable granularity, cover art supplied by the user.
+Cover art supplied by the user and reused on every chapter card with the chapter number over it, listening to each chapter before converting, dropping chapters from the pack, DAISY 3 (`.opf` + `.ncx` + SMIL 2.0), configurable granularity.
 
 ## Licence
 

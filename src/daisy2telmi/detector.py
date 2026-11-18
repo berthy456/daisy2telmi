@@ -64,6 +64,41 @@ def detect(path: Path) -> DaisyPack | None:
     return _scan(path)
 
 
+# Telmi-Sync's readStoryMetadata() deletes a story folder missing one of these files.
+_TELMI_MARKERS = ("metadata.json", "nodes.json", "title.mp3", "title.png")
+
+
+def _is_telmi(names: set[str]) -> bool:
+    return all(marker in names for marker in _TELMI_MARKERS)
+
+
+def find_telmi(path: Path, max_depth: int = _MAX_SEARCH_DEPTH) -> Path | None:
+    """Find a folder that is already a Telmi story.
+
+    Worth detecting separately: such an input is this tool's own output, so the
+    message can say that instead of only reporting a missing table of contents.
+    """
+    if not path.is_dir():
+        return None
+    frontier = [path]
+    depth = 0
+    while frontier and depth <= max_depth:
+        for current in frontier:
+            if _is_telmi({p.name.lower() for p in current.iterdir() if p.is_file()}):
+                return current
+        frontier = [p for d in frontier for p in sorted(d.iterdir()) if p.is_dir()]
+        depth += 1
+    return None
+
+
+def _already_telmi(path: Path) -> str:
+    return (
+        f"{path} is already a Telmi story (metadata.json, nodes.json, title.mp3, title.png), "
+        "not a DAISY 2.02 pack. A Telmi story goes straight onto the story teller; "
+        "convert the original DAISY pack instead."
+    )
+
+
 def _safe_extract(archive: zipfile.ZipFile, dest: Path) -> None:
     """Extract while rejecting traversal paths and macOS resource forks."""
     dest = dest.resolve()
@@ -85,6 +120,8 @@ def open_pack(path: Path) -> Iterator[DaisyPack]:
     if path.is_dir():
         pack = detect(path)
         if pack is None:
+            if find_telmi(path) is not None:
+                raise DaisyPackError(_already_telmi(path))
             raise DaisyPackError(
                 f"no DAISY 2.02 table of contents (ncc.html or *.ncx) found under {path}"
             )
@@ -100,6 +137,8 @@ def open_pack(path: Path) -> Iterator[DaisyPack]:
                 raise DaisyPackError(f"not a readable .zip archive: {path}") from exc
             pack = _scan(Path(tmp))
             if pack is None:
+                if find_telmi(Path(tmp)) is not None:
+                    raise DaisyPackError(_already_telmi(path))
                 raise DaisyPackError(
                     f"no DAISY 2.02 table of contents (ncc.html or *.ncx) found inside {path}"
                 )

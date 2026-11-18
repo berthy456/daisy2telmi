@@ -79,6 +79,11 @@ test("the story zip carries every entry Telmi-Sync requires", async () => {
   assert.equal([...names].filter((name) => name.startsWith("images/")).length, 6);
 });
 
+test("feeding back a converted story says what it is", async () => {
+  const entries = await pack("gon-ruby-mp3-telmi.zip");
+  assert.throws(() => extractBook(entries), /already a Telmi story/);
+});
+
 test("the written zip reads back identically", async () => {
   const silent = new Uint8Array(await readFile(join(ROOT, "web/silence.mp3")));
   const story = await buildStoryFiles(await pack("gon-ruby-mp3.zip"), silent);

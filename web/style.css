@@ -121,6 +121,14 @@ input[type="file"] {
   clip-path: inset(50%);
 }
 
+/* The rules below set `display` on elements that also use the `hidden`
+   attribute, and author rules beat the browser's [hidden] default. Without this
+   the download link stays clickable before a conversion, and its empty href
+   saves the page itself. */
+[hidden] {
+  display: none !important;
+}
+
 .button,
 button {
   display: inline-block;

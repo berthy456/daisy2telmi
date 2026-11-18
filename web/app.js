@@ -23,7 +23,7 @@ function setSource(name, loader) {
   source = { name, loader };
   convertButton.disabled = false;
   downloadLink.hidden = true;
-  downloadLink.href = "";
+  downloadLink.removeAttribute("href");
   logView.textContent = "";
   log(`loaded ${name}`);
 }
@@ -55,6 +55,7 @@ async function convert() {
   if (!source) return;
   convertButton.disabled = true;
   downloadLink.hidden = true;
+  downloadLink.removeAttribute("href");
   bar.hidden = false;
   bar.value = 0;
 
