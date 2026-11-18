@@ -35,6 +35,122 @@ def _locate_ffmpeg() -> str | None:
     return explicit
 
 
+def _locate_espeak() -> tuple[str, str] | None:
+    """The espeak-ng binary and its data folder.
+
+    The data folder matters more than the binary: without it espeak-ng knows no
+    languages, and the chapter cards would be silent.
+    """
+    explicit = os.environ.get("DAISY2TELMI_ESPEAK")
+    binary = explicit or shutil.which("espeak-ng") or shutil.which("espeak")
+    if not binary or not Path(binary).is_file():
+        return None
+    for candidate in (
+        Path(binary).parent.parent / "share" / "espeak-ng-data",
+        Path("/usr/share/espeak-ng-data"),
+        Path("/usr/local/share/espeak-ng-data"),
+        Path(binary).parent / "espeak-ng-data",
+    ):
+        if candidate.is_dir():
+            return binary, str(candidate)
+    print(f"warning: found {binary} but no espeak-ng-data folder; speech will not be bundled", file=sys.stderr)
+    return None
+
+
+# On macOS everything outside /usr/lib and /System was installed by the user, so
+# it all has to travel. On Linux the distribution puts real dependencies in
+# /usr/lib too, so only the C and C++ runtime stays behind.
+_LINUX_RUNTIME = (
+    "ld-linux",
+    "libc.so",
+    "libdl.so",
+    "libgcc_s.so",
+    "libm.so",
+    "libpthread.so",
+    "libresolv.so",
+    "librt.so",
+    "libstdc++.so",
+    "libutil.so",
+)
+
+
+def _linked_libs(binary: str) -> list[str]:
+    """Absolute paths of the shared libraries `binary` loads, system ones excluded."""
+    if sys.platform == "darwin":
+        out = subprocess.run(["otool", "-L", binary], capture_output=True, text=True).stdout
+        paths = [line.split()[0] for line in out.splitlines()[1:]]
+        return [p for p in paths if p.startswith("/") and not p.startswith(("/usr/lib", "/System"))]
+
+    out = subprocess.run(["ldd", binary], capture_output=True, text=True).stdout
+    paths = [parts[2] for parts in (line.split() for line in out.splitlines()) if len(parts) >= 3]
+    return [p for p in paths if p.startswith("/") and not p.split("/")[-1].startswith(_LINUX_RUNTIME)]
+
+
+def _stage_espeak(binary: str, data: str) -> list[str]:
+    """Copy espeak-ng, its libraries and its language data into dist/speech.
+
+    The libraries matter: the installed binary names them by absolute path, so a
+    bare copy would look for Homebrew or apt files on the user's machine and fail.
+    On macOS the load commands are rewritten to `@loader_path`; on Linux the
+    runtime sets LD_LIBRARY_PATH instead, which needs no rewriting.
+    """
+    stage = ROOT / "dist" / "speech"
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+
+    staged_exe = stage / Path(binary).name
+    shutil.copy2(binary, staged_exe)
+    staged_exe.chmod(0o755)
+
+    staged_libs: list[Path] = []
+    pending = [binary]
+    seen: set[str] = set()
+    while pending:
+        for dep in _linked_libs(pending.pop()):
+            # apt and Homebrew name the same library through different paths, so
+            # the copy's file name is what identifies it.
+            if Path(dep).name in seen or not Path(dep).is_file():
+                continue
+            seen.add(Path(dep).name)
+            target = stage / Path(dep).name
+            shutil.copy2(dep, target)
+            target.chmod(0o755)
+            staged_libs.append(target)
+            pending.append(dep)
+
+    if sys.platform == "darwin":
+        for target in [staged_exe, *staged_libs]:
+            if target.suffix == ".dylib":
+                subprocess.run(
+                    ["install_name_tool", "-id", f"@loader_path/{target.name}", str(target)],
+                    check=True,
+                    capture_output=True,
+                )
+            for dep in _linked_libs(str(target)):
+                subprocess.run(
+                    ["install_name_tool", "-change", dep, f"@loader_path/{Path(dep).name}", str(target)],
+                    check=True,
+                    capture_output=True,
+                )
+
+    print(f"bundling espeak-ng from {binary} with data {data} and {len(staged_libs)} librar{'y' if len(staged_libs) == 1 else 'ies'}")
+    return [
+        "--add-binary",
+        f"{staged_exe}{os.pathsep}.",
+        *(arg for lib in staged_libs for arg in ("--add-binary", f"{lib}{os.pathsep}.")),
+        "--add-data",
+        f"{data}{os.pathsep}espeak-ng-data",
+    ]
+
+
+def _speech_options() -> list[str]:
+    found = _locate_espeak()
+    if found is None:
+        return []
+    return _stage_espeak(*found)
+
+
 def _gui_options() -> list[str]:
     """tkinterdnd2 carries Tcl/Tk scripts and a tkdnd library PyInstaller cannot see."""
     if importlib.util.find_spec("tkinterdnd2") is None:
@@ -68,6 +184,7 @@ def main() -> int:
         "lxml._elementpath",
         "--add-binary",
         f"{ffmpeg}{os.pathsep}.",
+        *_speech_options(),
         *_gui_options(),
         str(ROOT / "launcher.py"),
     ]

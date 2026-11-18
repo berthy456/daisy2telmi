@@ -15,8 +15,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg and espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -68,13 +68,21 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: Build daisy2telmi
         run: python build_binary.py
       - name: Smoke test the binary
         run: dist/daisy2telmi --version
+      # The espeak-ng package is removed again so the run has to use the copy
+      # inside the binary: an installed engine would hide a broken bundle.
+      - name: Smoke test the spoken cards
+        run: |
+          sudo apt-get remove -y espeak-ng
+          dist/daisy2telmi gon-ruby-mp3.zip /tmp/smoke --announce prompt --language fr
+          count=$(ls /tmp/smoke/*/audios/c*.mp3 | wc -l)
+          [ "$count" -eq 6 ] || { echo "expected 6 spoken cards, found $count"; exit 1; }
       - name: Package the .deb
         run: |
           arch=$(dpkg --print-architecture)
@@ -87,9 +95,10 @@ jobs:
           name: daisy2telmi-linux
           path: dist/*.deb
 
-  macos-dmg:
+  # The same binary, packaged the way Arch/Fedora/SUSE users can install it.
+  appimage:
     needs: test
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -97,7 +106,50 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: |
-          brew install ffmpeg
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng squashfs-tools
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Build daisy2telmi
+        run: python build_binary.py
+      - name: Smoke test the binary
+        run: dist/daisy2telmi --version
+      # Runners have no FUSE, so appimagetool is unpacked instead of mounted.
+      - name: Build the AppImage
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          [ "$version" = "$GITHUB_REF_NAME" ] && version="0.0.0-dev-${GITHUB_SHA::7}"
+          curl -fL -o appimagetool.AppImage \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract
+          python tools/make_appimage.py dist/daisy2telmi \
+            "dist/daisy2telmi-${version}-x86_64.AppImage" \
+            --appimagetool squashfs-root/AppRun
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daisy2telmi-appimage
+          path: dist/*.AppImage
+
+  # PyInstaller builds for the machine it runs on, so the Intel build needs an
+  # Intel runner: macos-latest is arm64 only.
+  macos-dmg:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          brew install ffmpeg espeak-ng
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: Build daisy2telmi
@@ -126,7 +178,7 @@ jobs:
           hdiutil create -volname daisy2telmi -srcfolder "$staging" -ov -format UDZO "$image"
       - uses: actions/upload-artifact@v4
         with:
-          name: daisy2telmi-macos
+          name: daisy2telmi-macos-${{ matrix.arch }}
           path: dist/*.dmg
 
   # The browser converter: tested under Node, then published as static files.
@@ -155,7 +207,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows-exe, linux-deb, macos-dmg]
+    needs: [windows-exe, linux-deb, appimage, macos-dmg]
     runs-on: ubuntu-latest
     permissions:
       contents: write
