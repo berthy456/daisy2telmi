@@ -45,15 +45,23 @@ def _locate_espeak() -> tuple[str, str] | None:
     binary = explicit or shutil.which("espeak-ng") or shutil.which("espeak")
     if not binary or not Path(binary).is_file():
         return None
-    for candidate in (
-        Path(binary).parent.parent / "share" / "espeak-ng-data",
+
+    # Debian keeps the language data in /usr/share, Ubuntu in the multiarch
+    # library directory, and Homebrew next to the binary's prefix.
+    parent = Path(binary).parent
+    candidates = [
+        parent.parent / "share" / "espeak-ng-data",
         Path("/usr/share/espeak-ng-data"),
         Path("/usr/local/share/espeak-ng-data"),
-        Path(binary).parent / "espeak-ng-data",
-    ):
+        *sorted(Path("/usr/lib").glob("*/espeak-ng-data")),
+        parent.parent / "lib" / "espeak-ng-data",
+        parent / "espeak-ng-data",
+    ]
+    for candidate in candidates:
         if candidate.is_dir():
             return binary, str(candidate)
-    print(f"warning: found {binary} but no espeak-ng-data folder; speech will not be bundled", file=sys.stderr)
+    looked = ", ".join(str(c) for c in candidates)
+    print(f"warning: found {binary} but no espeak-ng-data folder in {looked}; speech will not be bundled", file=sys.stderr)
     return None
 
 
