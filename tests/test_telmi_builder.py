@@ -11,12 +11,15 @@ from daisy2telmi.telmi_builder import (
     StoryError,
     build_metadata,
     build_nodes,
+    build_notes,
+    chapter_png,
     placeholder_png,
+    story_dir_name,
     story_uuid,
 )
 from nodes_validator import validate_nodes
 
-SAMPLE = ["s1", "s2", "s3"]
+SAMPLE = ["s0", "s1", "s2"]
 
 
 def make_book(**overrides) -> Book:
@@ -39,47 +42,45 @@ def test_nodes_have_no_structural_problems() -> None:
 
 
 def test_single_chapter_story_is_valid() -> None:
-    nodes = build_nodes(["s1"])
+    nodes = build_nodes(["s0"])
     assert validate_nodes(nodes) == []
-    assert nodes["stages"]["s1"]["ok"]["action"] == "backAction"
+    assert nodes["stages"]["s0"]["ok"] is None
 
 
-def test_start_action_enters_the_first_stage() -> None:
+def test_start_action_enters_the_first_chapter_card() -> None:
     nodes = build_nodes(SAMPLE)
-    assert nodes["startAction"] == {"action": "a0", "index": 0}
-    assert nodes["actions"]["a0"] == [{"stage": "s1"}]
+    assert nodes["startAction"] == {"action": "m", "index": 0}
 
 
-def test_chapters_chain_linearly_through_ok_actions() -> None:
+def test_the_menu_lists_every_chapter_card_in_order() -> None:
     nodes = build_nodes(SAMPLE)
-    for first, second in zip(SAMPLE, SAMPLE[1:]):
-        following = nodes["stages"][first]["ok"]["action"]
-        assert nodes["actions"][following] == [{"stage": second}]
+    assert nodes["actions"]["m"] == [{"stage": "m0"}, {"stage": "m1"}, {"stage": "m2"}]
+
+
+def test_a_card_shows_its_image_and_waits_for_ok() -> None:
+    """A card has no audio, so autoplay must stay off or the player skips it."""
+    card = build_nodes(SAMPLE)["stages"]["m1"]
+    assert card == {
+        "image": "m1.png",
+        "audio": None,
+        "ok": {"action": "s1", "index": 0},
+        "home": None,
+        "control": {"ok": True, "home": True, "autoplay": False},
+    }
+
+
+def test_a_chapter_returns_to_the_next_card() -> None:
+    stage = build_nodes(SAMPLE)["stages"]["s1"]
+    assert stage["audio"] == "s1.mp3"
+    assert stage["image"] is None
+    assert stage["ok"] == {"action": "m", "index": 2}
+    assert stage["home"] == {"action": "m", "index": 1}
+    assert stage["control"] == {"ok": False, "home": True, "autoplay": True}
 
 
 def test_last_chapter_ends_the_story() -> None:
-    """The format has no 'finished' node, so the last ok returns to the menu."""
-    assert build_nodes(SAMPLE)["stages"]["s3"]["ok"]["action"] == "backAction"
-
-
-def test_every_scene_allows_autoplay_and_home() -> None:
-    for name, stage in build_nodes(SAMPLE)["stages"].items():
-        assert stage["control"] == {"ok": True, "home": True, "autoplay": True}
-        assert stage["home"] == {"action": "backAction", "index": 0}
-        assert stage["audio"] == f"{name}.mp3"
-        assert stage["image"] is None
-
-
-def test_ok_action_keys_are_unique_across_scenes() -> None:
-    nodes = build_nodes([f"s{i}" for i in range(1, 8)])
-    keys = [stage["ok"]["action"] for stage in nodes["stages"].values()]
-    assert len(keys) == len(set(keys))
-
-
-def test_no_action_is_shared_between_scenes() -> None:
-    nodes = build_nodes(SAMPLE)
-    used = [a for a in nodes["actions"] if a != "a0"]
-    assert len(used) == len(SAMPLE) - 1
+    """Published packs use a null `ok` to end, not a wrap-around to the menu."""
+    assert build_nodes(SAMPLE)["stages"]["s2"]["ok"] is None
 
 
 def test_empty_chapter_list_is_rejected() -> None:
@@ -87,13 +88,23 @@ def test_empty_chapter_list_is_rejected() -> None:
         build_nodes([])
 
 
+def test_notes_carry_the_chapter_titles() -> None:
+    from daisy2telmi.extractor import Chapter
+
+    book = make_book(chapters=[Chapter("Premier chapitre", ()), Chapter("Second", ())])
+    notes = build_notes(book)
+    assert notes["m0"] == {"title": "m0", "notes": "Premier chapitre"}
+    assert notes["s0"] == {"title": "Premier chapitre", "notes": ""}
+
+
 def test_metadata_contains_the_required_keys() -> None:
     metadata = build_metadata(make_book())
-    for key in ("title", "uuid", "image", "version"):
+    for key in ("title", "uuid", "image", "version", "age", "category"):
         assert key in metadata
     assert metadata["title"] == "ごんぎつね"
-    assert metadata["image"] == "title.png"
-    assert metadata["version"] == 2
+    assert metadata["image"] == "cover.png"
+    assert metadata["version"] == 0
+    assert metadata["age"] == 0
 
 
 def test_uuid_is_stable_for_the_same_book() -> None:
@@ -104,11 +115,31 @@ def test_uuid_differs_between_books() -> None:
     assert story_uuid(make_book()) != story_uuid(make_book(identifier="other"))
 
 
-def test_metadata_omits_optional_fields_that_are_unknown() -> None:
-    metadata = build_metadata(make_book(author=None, narrator=None, publisher=None, language=None))
-    assert "category" not in metadata
-    assert "age" not in metadata
-    assert metadata["description"] == "Converted from DAISY 2.02"
+def test_description_lists_the_chapters() -> None:
+    from daisy2telmi.extractor import Chapter
+
+    book = make_book(chapters=[Chapter("Gon", ()), Chapter("The hunter", ())])
+    description = build_metadata(book)["description"]
+    assert "- Gon (1/2)" in description
+    assert "- The hunter (2/2)" in description
+    assert "Author: 新美南吉" in description
+
+
+def test_dir_name_matches_a_real_published_story() -> None:
+    """Pinned to the folder name Telmi-Sync produced for a published pack."""
+    assert story_dir_name("La reine des pirates", "fffffd-19d14f92f57", 0, "") == (
+        "_00_La reine des pirates_fffffd-19d14f92f57"
+    )
+
+
+def test_dir_name_strips_accents_and_odd_characters() -> None:
+    name = story_dir_name("L'été de l'île", "8f2c-44", 7)
+    assert name == "_07_L ete de l ile_8f2c-44"
+
+
+def test_dir_name_pads_a_single_digit_age_and_caps_the_title() -> None:
+    name = story_dir_name("a" * 50, "u", 12)
+    assert name.startswith("_12_" + "a" * 32 + "_")
 
 
 def test_placeholder_png_is_a_valid_640x480_rgb_image() -> None:
@@ -118,3 +149,11 @@ def test_placeholder_png_is_a_valid_640x480_rgb_image() -> None:
     width, height, depth, color_type = struct.unpack(">IIBB", data[16:26])
     assert (width, height, depth, color_type) == (640, 480, 8, 2)
     assert data.endswith(b"IEND\xaeB`\x82")
+
+
+def test_chapter_png_is_a_valid_image_that_differs_per_chapter() -> None:
+    for number in (1, 12):
+        data = chapter_png(number)
+        width, height = struct.unpack(">II", data[16:24])
+        assert (width, height) == (640, 480)
+    assert chapter_png(1) != chapter_png(2)

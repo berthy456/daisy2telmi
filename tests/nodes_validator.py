@@ -1,14 +1,29 @@
-"""Structural checks for a Telmi `nodes.json`, shared by the unit and integration tests."""
+"""Checks a generated story against the rules Telmi-Sync and the story teller enforce.
+
+The rules here are read off DantSu/Telmi-Sync (`readStoryMetadata`, `storyFormatDetector`)
+and DantSu/Telmi-story-teller (`stories_reader.h`), not guessed.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-RESERVED_ACTIONS = {"backAction"}
+# Telmi-Sync's readStoryMetadata deletes the folder if any of these is absent.
+REQUIRED_ENTRIES = (
+    "audios",
+    "images",
+    "metadata.json",
+    "nodes.json",
+    "title.mp3",
+    "title.png",
+)
+
+_METADATA_KEYS = ("title", "uuid", "image", "version")
 
 
 def validate_nodes(nodes: dict[str, Any]) -> list[str]:
-    """Return a list of human-readable problems; empty means the file looks valid."""
+    """Return human-readable problems with a `nodes.json`; empty means it looks valid."""
     problems: list[str] = []
     stages = nodes.get("stages")
     actions = nodes.get("actions")
@@ -20,61 +35,102 @@ def validate_nodes(nodes: dict[str, Any]) -> list[str]:
         return ["nodes.json has no actions"]
     if not isinstance(start, dict) or "action" not in start:
         return ["nodes.json has no startAction"]
-
     if start["action"] not in actions:
         problems.append(f"startAction references unknown action {start['action']!r}")
 
-    ok_actions: list[str] = []
+    def check_transition(where: str, transition: Any) -> None:
+        if transition is None:
+            return
+        if not isinstance(transition, dict):
+            problems.append(f"{where} is not an object or null")
+            return
+        action, index = transition.get("action"), transition.get("index")
+        if action not in actions:
+            problems.append(f"{where} references unknown action {action!r}")
+            return
+        targets = actions[action]
+        if not isinstance(targets, list) or not targets:
+            problems.append(f"action {action!r} is not a non-empty list")
+        elif not isinstance(index, int) or not 0 <= index < len(targets):
+            problems.append(f"{where} index {index!r} is outside action {action!r}")
+
     for name, stage in stages.items():
-        for key in ("ok", "home", "control"):
+        for key in ("image", "audio", "ok", "home", "control"):
             if key not in stage:
                 problems.append(f"{name} is missing {key!r}")
-        if stage.get("audio") != f"{name}.mp3":
-            problems.append(f"{name} has audio {stage.get('audio')!r}, expected {name + '.mp3'!r}")
 
-        home = stage.get("home") or {}
-        if home.get("action") != "backAction":
-            problems.append(f"{name}.home must point at backAction, got {home.get('action')!r}")
+        for key in ("image", "audio"):
+            value = stage.get(key)
+            if value is not None and not isinstance(value, str):
+                problems.append(f"{name}.{key} must be a string or null")
 
-        ok = stage.get("ok") or {}
-        ok_actions.append(ok.get("action"))
+        check_transition(f"{name}.ok", stage.get("ok"))
+        check_transition(f"{name}.home", stage.get("home"))
 
         control = stage.get("control") or {}
         for key in ("ok", "home", "autoplay"):
             if not isinstance(control.get(key), bool):
                 problems.append(f"{name}.control.{key} is missing or not a boolean")
-
-    duplicates = {a for a in ok_actions if ok_actions.count(a) > 1 and a not in RESERVED_ACTIONS}
-    if duplicates:
-        problems.append(f"ok actions are not unique: {sorted(duplicates)}")
-
-    referenced = set(ok_actions) | {home.get("action") for home in (s.get("home") or {} for s in stages.values())}
-    for action in referenced - RESERVED_ACTIONS:
-        if action not in actions:
-            problems.append(f"stage references unknown action {action!r}")
-
     for action, targets in actions.items():
+        if not isinstance(targets, list) or not targets:
+            problems.append(f"action {action!r} must be a non-empty list")
+            continue
         for target in targets:
             if target.get("stage") not in stages:
                 problems.append(f"action {action!r} references unknown stage {target.get('stage')!r}")
 
     reachable: set[str] = set()
-    pending = [start["action"]]
     seen_actions: set[str] = set()
+    pending = [start["action"]]
     while pending:
         action = pending.pop()
-        if action in seen_actions or action in RESERVED_ACTIONS:
+        if action in seen_actions:
             continue
         seen_actions.add(action)
         for target in actions.get(action, []):
             stage_name = target.get("stage")
             if stage_name in stages and stage_name not in reachable:
                 reachable.add(stage_name)
-                following = (stages[stage_name].get("ok") or {}).get("action")
-                if following:
-                    pending.append(following)
-    unreachable = set(stages) - reachable
-    if unreachable:
+                for key in ("ok", "home"):
+                    following = (stages[stage_name].get(key) or {}).get("action")
+                    if following:
+                        pending.append(following)
+    if unreachable := set(stages) - reachable:
         problems.append(f"stages unreachable from startAction: {sorted(unreachable)}")
+
+    return problems
+
+
+def validate_story_dir(story_dir: Path) -> list[str]:
+    """Check a whole story folder against what Telmi-Sync requires on import."""
+    problems: list[str] = []
+    for entry in REQUIRED_ENTRIES:
+        if not (story_dir / entry).exists():
+            problems.append(f"missing {entry} (Telmi-Sync rejects or deletes the story without it)")
+
+    nodes_path, metadata_path = story_dir / "nodes.json", story_dir / "metadata.json"
+    if not nodes_path.is_file() or not metadata_path.is_file():
+        return problems
+
+    import json
+
+    nodes = json.loads(nodes_path.read_text(encoding="utf-8"))
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    problems += validate_nodes(nodes)
+
+    for key in _METADATA_KEYS:
+        if key not in metadata:
+            problems.append(f"metadata.json is missing {key!r}")
+
+    cover = metadata.get("image")
+    if cover and not (story_dir / cover).is_file():
+        problems.append(f"metadata.image points at a missing file: {cover}")
+
+    for name, stage in (nodes.get("stages") or {}).items():
+        audio, image = stage.get("audio"), stage.get("image")
+        if audio and not (story_dir / "audios" / audio).is_file():
+            problems.append(f"{name}.audio is missing: audios/{audio}")
+        if image and not (story_dir / "images" / image).is_file():
+            problems.append(f"{name}.image is missing: images/{image}")
 
     return problems

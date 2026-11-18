@@ -10,7 +10,7 @@ from pathlib import Path
 from . import __version__, audio
 from .detector import DaisyPackError, open_pack
 from .extractor import extract
-from .telmi_builder import StoryError, build_story
+from .telmi_builder import StoryError, build_story, story_dir_name, story_uuid
 
 log = logging.getLogger("daisy2telmi")
 
@@ -21,7 +21,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         description="Convert a DAISY 2.02 audio book pack into a Telmi story folder.",
     )
     parser.add_argument("input", type=Path, help="path to a DAISY pack (.zip or already extracted folder)")
-    parser.add_argument("output", type=Path, help="folder to write the Telmi story into")
+    parser.add_argument(
+        "output",
+        type=Path,
+        help="folder to create the story folder in; the story folder gets Telmi's "
+        "`<category>_<age>_<title>_<uuid>` name unless this path already has it",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="log every ffmpeg invocation")
     parser.add_argument("-f", "--force", action="store_true", help="write into the output folder even if it is not empty")
     parser.add_argument("--version", action="version", version=f"daisy2telmi {__version__}")
@@ -36,10 +41,6 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
 
-    if args.output.exists() and any(args.output.iterdir()) and not args.force:
-        log.error("%s is not empty; pass --force to overwrite", args.output)
-        return 2
-
     try:
         audio.require_ffmpeg()
         with open_pack(args.input) as pack:
@@ -51,8 +52,13 @@ def main(argv: list[str] | None = None) -> int:
             log.info("found %d chapter(s): %s", len(book.chapters), ", ".join(c.title for c in book.chapters))
             for chapter in book.chapters:
                 log.debug("  %s -> %s", chapter.title, [str(s.src.name) for s in chapter.segments])
-            args.output.mkdir(parents=True, exist_ok=True)
-            report = build_story(book, args.output)
+            name = story_dir_name(book.title, story_uuid(book))
+            target = args.output if args.output.name == name else args.output / name
+            if target.exists() and any(target.iterdir()) and not args.force:
+                log.error("%s is not empty; pass --force to overwrite", target)
+                return 2
+            target.mkdir(parents=True, exist_ok=True)
+            report = build_story(book, target)
     except (DaisyPackError, StoryError, audio.AudioError) as exc:
         log.error("%s", exc)
         return 1

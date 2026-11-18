@@ -6,3 +6,6 @@ build/
 dist/
 *.spec
 output*/
+stories/
+Rachel-Corenblit-Wesh-la-fee.zip
+_00_*/

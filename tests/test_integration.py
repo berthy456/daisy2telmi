@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from daisy2telmi.cli import main
-from nodes_validator import validate_nodes
+from daisy2telmi.telmi_builder import story_dir_name
+from nodes_validator import validate_story_dir
 
 _PACK_CANDIDATES = (
     Path(__file__).resolve().parents[1] / "gon-ruby-mp3.zip",
@@ -28,9 +29,11 @@ EXPECTED_CHAPTERS = 6
 
 @pytest.fixture(scope="module")
 def story(tmp_path_factory) -> Path:
-    out = tmp_path_factory.mktemp("story") / "gon"
+    out = tmp_path_factory.mktemp("story")
     assert main([str(PACK), str(out)]) == 0
-    return out
+    folders = [entry for entry in out.iterdir() if entry.is_dir()]
+    assert len(folders) == 1, f"expected one story folder, got {[f.name for f in folders]}"
+    return folders[0]
 
 
 def probe(path: Path) -> dict[str, str]:
@@ -55,40 +58,50 @@ def probe(path: Path) -> dict[str, str]:
 
 
 @requires_pack
-def test_conversion_writes_the_expected_folder(story: Path) -> None:
-    for name in ("metadata.json", "nodes.json", "title.mp3", "title.png"):
-        assert (story / name).is_file(), f"missing {name}"
-    assert (story / "audios").is_dir()
+def test_the_folder_passes_telmis_own_import_checks(story: Path) -> None:
+    """The six entries Telmi-Sync requires, plus every referenced media file."""
+    assert validate_story_dir(story) == []
+
+
+@requires_pack
+def test_the_story_folder_uses_telmis_naming(story: Path) -> None:
+    metadata = json.loads((story / "metadata.json").read_text(encoding="utf-8"))
+    assert story.name == story_dir_name(metadata["title"], metadata["uuid"])
 
 
 @requires_pack
 def test_metadata_json_is_complete(story: Path) -> None:
     metadata = json.loads((story / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["title"] == "ごんぎつね"
-    assert metadata["image"] == "title.png"
+    assert metadata["image"] == "cover.png"
     assert metadata["uuid"]
 
 
 @requires_pack
-def test_nodes_json_has_one_stage_per_top_level_chapter(story: Path) -> None:
+def test_nodes_json_has_one_chapter_per_top_level_chapter(story: Path) -> None:
     nodes = json.loads((story / "nodes.json").read_text(encoding="utf-8"))
-    assert len(nodes["stages"]) == EXPECTED_CHAPTERS
-    assert validate_nodes(nodes) == []
+    assert [name for name in nodes["stages"] if name.startswith("s")] == [
+        f"s{k}" for k in range(EXPECTED_CHAPTERS)
+    ]
 
 
 @requires_pack
-def test_every_stage_audio_exists_on_disk(story: Path) -> None:
-    nodes = json.loads((story / "nodes.json").read_text(encoding="utf-8"))
-    for name, stage in nodes["stages"].items():
-        audio = story / "audios" / stage["audio"]
-        assert audio.is_file() and audio.stat().st_size > 1000
+def test_every_chapter_has_a_card_image(story: Path) -> None:
+    for k in range(EXPECTED_CHAPTERS):
+        image = story / "images" / f"m{k}.png"
+        assert image.is_file(), f"missing {image}"
+        assert image.stat().st_size > 1000
 
 
 @requires_pack
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
 def test_no_audio_is_dropped_from_the_book(story: Path) -> None:
     nodes = json.loads((story / "nodes.json").read_text(encoding="utf-8"))
-    scenes = sum(float(probe(story / "audios" / s["audio"])["duration"]) for s in nodes["stages"].values())
+    scenes = sum(
+        float(probe(story / "audios" / stage["audio"])["duration"])
+        for name, stage in nodes["stages"].items()
+        if name.startswith("s")
+    )
     title = float(probe(story / "title.mp3")["duration"])
     assert scenes + title == pytest.approx(TOTAL_SECONDS, abs=0.5)
     assert title == pytest.approx(FRONT_MATTER_SECONDS, abs=0.2)
@@ -112,13 +125,15 @@ def test_an_already_extracted_folder_is_accepted(tmp_path: Path) -> None:
         archive.extractall(unpacked)
     out = tmp_path / "out"
     assert main([str(unpacked), str(out)]) == 0
-    assert (out / "nodes.json").is_file()
+    story_folders = [entry for entry in out.iterdir() if entry.is_dir()]
+    assert len(story_folders) == 1
+    assert validate_story_dir(story_folders[0]) == []
 
 
 @requires_pack
-def test_a_non_empty_output_folder_is_refused_without_force(tmp_path: Path) -> None:
+def test_an_existing_story_folder_is_refused_without_force(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    out.mkdir()
+    assert main([str(PACK), str(out)]) == 0
     (out / "keep.txt").write_text("do not clobber", encoding="utf-8")
     assert main([str(PACK), str(out)]) == 2
     assert (out / "keep.txt").read_text(encoding="utf-8") == "do not clobber"
@@ -159,8 +174,9 @@ def test_a_pack_without_front_matter_gets_a_silent_title(tmp_path: Path) -> None
     )
     out = tmp_path / "out"
     assert main([str(root), str(out)]) == 0
-    assert float(probe(out / "title.mp3")["duration"]) == pytest.approx(1.0, abs=0.2)
-    assert float(probe(out / "audios" / "s1.mp3")["duration"]) == pytest.approx(2.0, abs=0.2)
+    story = next(entry for entry in out.iterdir() if entry.is_dir())
+    assert float(probe(story / "title.mp3")["duration"]) == pytest.approx(1.0, abs=0.2)
+    assert float(probe(story / "audios" / "s0.mp3")["duration"]) == pytest.approx(2.0, abs=0.2)
 
 
 @requires_pack
@@ -168,4 +184,5 @@ def test_force_reuses_an_existing_output_folder(tmp_path: Path) -> None:
     out = tmp_path / "out"
     assert main([str(PACK), str(out)]) == 0
     assert main([str(PACK), str(out), "--force"]) == 0
-    assert len(list((out / "audios").glob("*.mp3"))) == EXPECTED_CHAPTERS
+    story_folder = next(entry for entry in out.iterdir() if entry.is_dir())
+    assert len(list((story_folder / "audios").glob("*.mp3"))) == EXPECTED_CHAPTERS
