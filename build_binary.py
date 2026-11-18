@@ -1,13 +1,15 @@
-"""Build daisy2telmi.exe with PyInstaller.
+"""Build a self-contained daisy2telmi executable with PyInstaller.
 
-ffmpeg found on the build machine is bundled into the exe, so the end user does
-not have to install it. PyInstaller cannot cross-compile, so this must be run on
-Windows:
+ffmpeg found on the build machine is bundled into the binary, so the end user
+does not have to install it. PyInstaller cannot cross-compile, so this produces
+a binary for the machine it runs on. On Windows:
+
     py -3.11 -m venv .venv
     .venv\\Scripts\\activate
     pip install -e .[dev]
-    python build_windows.py
-The result is dist\\daisy2telmi.exe.
+    python build_binary.py
+
+The result is dist/daisy2telmi.exe (dist/daisy2telmi on macOS and Linux).
 """
 
 from __future__ import annotations
@@ -33,23 +35,15 @@ def _locate_ffmpeg() -> str | None:
 
 
 def main() -> int:
-    if sys.platform != "win32":
-        print(
-            f"error: PyInstaller must be run on Windows, this machine reports {sys.platform!r}.\n"
-            "On Windows, run: python build_windows.py",
-            file=sys.stderr,
-        )
-        return 1
-
     ffmpeg = _locate_ffmpeg()
     if ffmpeg is None:
         print(
             "error: ffmpeg was not found on this machine, so it cannot be bundled.\n"
-            "Install it (winget install Gyan.FFmpeg) or point DAISY2TELMI_FFMPEG at an ffmpeg executable.",
+            "Install it, or point DAISY2TELMI_FFMPEG at an ffmpeg executable.",
             file=sys.stderr,
         )
         return 1
-    print(f"bundling ffmpeg from {ffmpeg}")
+    print(f"bundling ffmpeg from {ffmpeg} for {sys.platform}")
 
     command = [
         sys.executable,

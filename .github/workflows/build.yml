@@ -24,6 +24,9 @@ jobs:
       - name: Test
         run: pytest -q
 
+  # PyInstaller cannot cross-compile, so each binary is built on its own OS.
+  # choco does not refresh PATH for later steps, so the Windows job installs
+  # ffmpeg and builds in one step and hands build_binary.py the resolved path.
   windows-exe:
     needs: test
     runs-on: windows-latest
@@ -36,8 +39,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
-      # choco does not refresh PATH for later steps, so install ffmpeg and build in
-      # one step and hand build_windows.py the resolved path.
       - name: Build daisy2telmi.exe
         run: |
           choco install ffmpeg -y
@@ -47,19 +48,98 @@ jobs:
                     -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
           }
           if (-not $ff) { Write-Error "ffmpeg install produced no ffmpeg.exe"; exit 1 }
-          Write-Host "bundling ffmpeg: $ff"
           $env:DAISY2TELMI_FFMPEG = $ff
-          python build_windows.py
+          python build_binary.py
           exit $LASTEXITCODE
       - name: Smoke test the exe
         run: dist\daisy2telmi.exe --version
-      - name: Upload exe
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: daisy2telmi-windows
           path: dist/daisy2telmi.exe
-      - name: Attach exe to the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+
+  linux-deb:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          files: dist/daisy2telmi.exe
+          python-version: "3.11"
+      - name: Install
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Build daisy2telmi
+        run: python build_binary.py
+      - name: Smoke test the binary
+        run: dist/daisy2telmi --version
+      - name: Package the .deb
+        run: |
+          arch=$(dpkg --print-architecture)
+          version=${GITHUB_REF_NAME#v}
+          [ "$version" = "$GITHUB_REF_NAME" ] && version="0.0.0~dev.${GITHUB_SHA::7}"
+          python tools/make_deb.py dist/daisy2telmi "dist/daisy2telmi_${version}_${arch}.deb" \
+            --version "$version" --architecture "$arch"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daisy2telmi-linux
+          path: dist/*.deb
+
+  macos-dmg:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          brew install ffmpeg
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Build daisy2telmi
+        run: python build_binary.py
+      - name: Smoke test the binary
+        run: dist/daisy2telmi --version
+      # Unsigned: Gatekeeper blocks the first run, so the dmg carries the
+      # right-click > Open instruction next to the binary.
+      - name: Package the .dmg
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          [ "$version" = "$GITHUB_REF_NAME" ] && version="0.0.0-dev-${GITHUB_SHA::7}"
+          arch=$(uname -m)
+          image="dist/daisy2telmi-${version}-macos-${arch}.dmg"
+          staging=$(mktemp -d)
+          cp dist/daisy2telmi "$staging/"
+          cat > "$staging/README.txt" <<'TXT'
+          daisy2telmi is not signed or notarised, so macOS blocks it the first time.
+
+          Open it with right-click > Open, or clear the quarantine flag:
+              xattr -d com.apple.quarantine daisy2telmi
+
+          Then run:
+              ./daisy2telmi <daisy-pack.zip> <output-folder>
+          TXT
+          hdiutil create -volname daisy2telmi -srcfolder "$staging" -ov -format UDZO "$image"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daisy2telmi-macos
+          path: dist/*.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows-exe, linux-deb, macos-dmg]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          files: artifacts/*/*

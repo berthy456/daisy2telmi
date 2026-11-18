@@ -130,20 +130,32 @@ All 26 source MP3s are consumed; none are dropped.
 10. `age` is 0 and `category` is empty: DAISY 2.02 carries no audience-age field, and both feed the folder name.
 11. Every top-level outline entry with audio becomes a chapter, including entries such as *Table des matières* or *Fin du livre*. Nothing is dropped on a title guess.
 
-## Build the Windows executable
+## Build a binary
 
-PyInstaller cannot cross-compile. Run this **on Windows**:
+`build_binary.py` produces a `--onefile` executable for the machine it runs on. PyInstaller cannot cross-compile, so build on the target OS. On Windows:
 
 ```bat
 py -3.11 -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
-python build_windows.py
+python build_binary.py
 ```
 
-Produces `dist\daisy2telmi.exe` (`--onefile`). `lxml.etree` and `lxml._elementpath` are passed as hidden imports; PyInstaller's own lxml hook does the rest.
+Produces `dist\daisy2telmi.exe` (`dist/daisy2telmi` on macOS and Linux). `lxml.etree` and `lxml._elementpath` are passed as hidden imports; PyInstaller's own lxml hook does the rest.
 
-`build_windows.py` locates ffmpeg on the build machine and embeds it with `--add-binary`, so the exe is self-contained. If ffmpeg is missing on the build machine the script stops rather than shipping an exe that needs a separate install. At runtime the converter looks for the bundled copy (`sys._MEIPASS`, then the exe's own folder) before falling back to PATH.
+`build_binary.py` locates ffmpeg on the build machine and embeds it with `--add-binary`, so the binary is self-contained. If ffmpeg is missing the script stops rather than shipping something that needs a separate install. Set `DAISY2TELMI_FFMPEG` to override the search. At runtime the converter looks for the bundled copy (`sys._MEIPASS`, then the executable's own folder) before falling back to PATH.
+
+### CI artifacts
+
+`.github/workflows/build.yml` builds all three on push to `main`, each on its own runner, and attaches them to a GitHub Release on a `v*` tag:
+
+| Artifact | Built on | Notes |
+| :--- | :--- | :--- |
+| `daisy2telmi.exe` | `windows-latest` | ffmpeg bundled |
+| `daisy2telmi_<version>_<arch>.deb` | `ubuntu-latest` | installs to `/usr/local/bin/daisy2telmi`, declares `ffmpeg` as a dependency rather than duplicating it |
+| `daisy2telmi-<version>-macos-<arch>.dmg` | `macos-latest` | **unsigned and un-notarised**: Gatekeeper blocks the first run, so open it with right-click → Open or `xattr -d com.apple.quarantine daisy2telmi` |
+
+The `.deb` is written by `tools/make_deb.py` using only the standard library, so it can be produced and checked on any OS without `dpkg` or `fakeroot`.
 
 ## Tests
 
