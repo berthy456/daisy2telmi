@@ -58,9 +58,11 @@ jobs:
           name: daisy2telmi-windows
           path: dist/daisy2telmi.exe
 
+  # Pinned: the bundled libraries inherit the runner's glibc, and 22.04 is the
+  # oldest Ubuntu image still published (glibc 2.35).
   linux-deb:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -75,6 +77,12 @@ jobs:
         run: python build_binary.py
       - name: Smoke test the binary
         run: dist/daisy2telmi --version
+      # The Tcl/Tk and espeak libraries are copied into the binary, so they carry
+      # the build machine's glibc. ubuntu-latest (26.04) produced binaries that
+      # died on `GLIBC_2.42 not found` on the user's machine; the floor is now
+      # checked instead of assumed.
+      - name: Check the glibc floor of the bundled libraries
+        run: python tools/check_glibc.py --build build --floor 2.35
       # The espeak-ng package is removed again so the run has to use the copy
       # inside the binary: an installed engine would hide a broken bundle.
       - name: Smoke test the spoken cards
@@ -98,7 +106,7 @@ jobs:
   # The same binary, packaged the way Arch/Fedora/SUSE users can install it.
   appimage:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -113,6 +121,12 @@ jobs:
         run: python build_binary.py
       - name: Smoke test the binary
         run: dist/daisy2telmi --version
+      # The Tcl/Tk and espeak libraries are copied into the binary, so they carry
+      # the build machine's glibc. ubuntu-latest (26.04) produced binaries that
+      # died on `GLIBC_2.42 not found` on the user's machine; the floor is now
+      # checked instead of assumed.
+      - name: Check the glibc floor of the bundled libraries
+        run: python tools/check_glibc.py --build build --floor 2.35
       # Runners have no FUSE, so appimagetool is unpacked instead of mounted.
       - name: Build the AppImage
         run: |
