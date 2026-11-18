@@ -21,6 +21,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
+def _locate_ffmpeg() -> str | None:
+    """DAISY2TELMI_FFMPEG wins over PATH, because installers do not always refresh PATH."""
+    explicit = os.environ.get("DAISY2TELMI_FFMPEG")
+    if not explicit:
+        return shutil.which("ffmpeg")
+    if not Path(explicit).is_file():
+        print(f"error: DAISY2TELMI_FFMPEG points at a missing file: {explicit}", file=sys.stderr)
+        return None
+    return explicit
+
+
 def main() -> int:
     if sys.platform != "win32":
         print(
@@ -30,11 +41,11 @@ def main() -> int:
         )
         return 1
 
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = _locate_ffmpeg()
     if ffmpeg is None:
         print(
             "error: ffmpeg was not found on this machine, so it cannot be bundled.\n"
-            "Install it first: winget install Gyan.FFmpeg",
+            "Install it (winget install Gyan.FFmpeg) or point DAISY2TELMI_FFMPEG at an ffmpeg executable.",
             file=sys.stderr,
         )
         return 1

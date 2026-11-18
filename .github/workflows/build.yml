@@ -32,15 +32,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      # build_windows.py embeds this ffmpeg into the exe, so the end user needs none.
-      - name: Install ffmpeg
-        run: choco install ffmpeg -y
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
+      # choco does not refresh PATH for later steps, so install ffmpeg and build in
+      # one step and hand build_windows.py the resolved path.
       - name: Build daisy2telmi.exe
-        run: python build_windows.py
+        run: |
+          choco install ffmpeg -y
+          $ff = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+          if (-not $ff) {
+            $ff = (Get-ChildItem C:\tools, C:\ProgramData\chocolatey -Recurse -Filter ffmpeg.exe `
+                    -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          }
+          if (-not $ff) { Write-Error "ffmpeg install produced no ffmpeg.exe"; exit 1 }
+          Write-Host "bundling ffmpeg: $ff"
+          $env:DAISY2TELMI_FFMPEG = $ff
+          python build_windows.py
+          exit $LASTEXITCODE
       - name: Smoke test the exe
         run: dist\daisy2telmi.exe --version
       - name: Upload exe
