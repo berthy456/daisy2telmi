@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install ffmpeg and espeak-ng
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng espeak-ng-data
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -68,7 +68,7 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng espeak-ng-data
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: Build daisy2telmi
@@ -106,7 +106,7 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng squashfs-tools
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng espeak-ng-data squashfs-tools
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: Build daisy2telmi

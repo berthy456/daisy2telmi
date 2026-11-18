@@ -190,7 +190,7 @@ Produces `dist\daisy2telmi.exe` (`dist/daisy2telmi` on macOS and Linux). `lxml.e
 | `daisy2telmi-<version>-x86_64.AppImage` | `ubuntu-latest` | the same binary, packaged by `tools/make_appimage.py`; `appimagetool` is unpacked with `--appimage-extract` because runners have no FUSE |
 | `daisy2telmi-<version>-macos-<arch>.dmg` | `macos-latest` (arm64) and `macos-15-intel` (x86_64) | **unsigned and un-notarised**: Gatekeeper blocks the first run, so open it with right-click → Open or `xattr -d com.apple.quarantine daisy2telmi` |
 
-The Linux and macOS builds also bundle espeak-ng, the libraries it links and its language data. `build_binary.py` copies them to `dist/speech/` and rewrites the macOS load commands to `@loader_path`; at runtime `tts.py` points `ESPEAK_DATA_PATH` at the copied data and, on Linux, `LD_LIBRARY_PATH` at the copied libraries. The `linux-deb` job removes the `espeak-ng` package before its smoke test so the run has to use the bundled copy.
+The Linux and macOS builds also bundle espeak-ng, the libraries it links and its language data. `build_binary.py` copies them to `dist/speech/` and rewrites the macOS load commands to `@loader_path`; at runtime `tts.py` points `ESPEAK_DATA_PATH` at the copied data and, on Linux, `LD_LIBRARY_PATH` at the copied libraries. Without a data folder the script says so and ships without speech — on Debian and Ubuntu that data is a separate package, `espeak-ng-data`, which `espeak-ng` only recommends. The `linux-deb` job removes the `espeak-ng` package before its smoke test so the run has to use the bundled copy.
 
 The `.deb` is written by `tools/make_deb.py` using only the standard library, so it can be produced and checked on any OS without `dpkg` or `fakeroot`.
 

@@ -21,6 +21,14 @@ def test_the_engine_list_names_the_four_back_ends() -> None:
     assert [engine.name for engine in tts.engines()] == [tts.ESPEAK, tts.SAY, tts.SAPI, tts.COMMAND]
 
 
+def test_windows_speech_is_only_offered_on_windows(monkeypatch) -> None:
+    # pwsh is installed on Linux runners, where System.Speech does not exist;
+    # offering it there makes `auto` pick an engine that cannot speak.
+    monkeypatch.setattr(tts.sys, "platform", "linux")
+    monkeypatch.setattr(tts.shutil, "which", lambda name: "/usr/bin/pwsh")
+    assert not tts.available(tts.SAPI)
+
+
 def test_off_short_circuits_before_any_lookup() -> None:
     assert tts.resolve("off", LANGUAGES["en"]) == "off"
 

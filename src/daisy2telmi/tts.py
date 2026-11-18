@@ -80,7 +80,8 @@ def available(name: str) -> bool:
     if name == SAY:
         return sys.platform == "darwin" and _which("say")
     if name == SAPI:
-        return _which("powershell") or _which("pwsh")
+        # pwsh runs on Linux and macOS, but System.Speech is Windows only.
+        return sys.platform == "win32" and (_which("powershell") or _which("pwsh"))
     if name == COMMAND:
         return True
     return False
