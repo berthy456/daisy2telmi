@@ -14,6 +14,7 @@ The result is dist/daisy2telmi.exe (dist/daisy2telmi on macOS and Linux).
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -32,6 +33,13 @@ def _locate_ffmpeg() -> str | None:
         print(f"error: DAISY2TELMI_FFMPEG points at a missing file: {explicit}", file=sys.stderr)
         return None
     return explicit
+
+
+def _gui_options() -> list[str]:
+    """tkinterdnd2 carries Tcl/Tk scripts and a tkdnd library PyInstaller cannot see."""
+    if importlib.util.find_spec("tkinterdnd2") is None:
+        return []
+    return ["--collect-all", "tkinterdnd2"]
 
 
 def main() -> int:
@@ -60,6 +68,7 @@ def main() -> int:
         "lxml._elementpath",
         "--add-binary",
         f"{ffmpeg}{os.pathsep}.",
+        *_gui_options(),
         str(ROOT / "launcher.py"),
     ]
     print(" ".join(command))

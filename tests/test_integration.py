@@ -12,7 +12,7 @@ import pytest
 
 from daisy2telmi.cli import main
 from daisy2telmi.telmi_builder import story_dir_name
-from nodes_validator import validate_story_dir
+from nodes_validator import validate_story_dir, validate_story_zip
 
 _PACK_CANDIDATES = (
     Path(__file__).resolve().parents[1] / "gon-ruby-mp3.zip",
@@ -61,6 +61,17 @@ def probe(path: Path) -> dict[str, str]:
 def test_the_folder_passes_telmis_own_import_checks(story: Path) -> None:
     """The six entries Telmi-Sync requires, plus every referenced media file."""
     assert validate_story_dir(story) == []
+
+
+@requires_pack
+def test_the_zip_passes_telmis_zip_import_checks(story: Path) -> None:
+    zip_path = story.with_name(story.name + ".zip")
+    assert zip_path.is_file(), f"no zip next to {story}"
+    assert validate_story_zip(zip_path) == []
+    with zipfile.ZipFile(zip_path) as archive:
+        entries = archive.namelist()
+    assert all(name.startswith(f"{story.name}/") for name in entries)
+    assert f"{story.name}/nodes.json" in entries
 
 
 @requires_pack

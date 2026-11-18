@@ -101,6 +101,29 @@ def validate_nodes(nodes: dict[str, Any]) -> list[str]:
     return problems
 
 
+def validate_story_zip(zip_path: Path) -> list[str]:
+    """Check a zip against ConvertZip.js `findDirectory`, which picks the format
+    by counting marker files per zip directory."""
+    import zipfile
+
+    problems: list[str] = []
+    with zipfile.ZipFile(zip_path) as archive:
+        names = [n for n in archive.namelist() if not n.endswith("/")]
+        markers: dict[str, int] = {}
+        for name in names:
+            parent = name.rsplit("/", 1)[0] if "/" in name else ""
+            base = name.rsplit("/", 1)[-1]
+            if base in ("metadata.json", "nodes.json", "title.mp3", "title.png"):
+                markers[parent] = markers.get(parent, 0) + 1
+        if not any(count == 4 for count in markers.values()):
+            problems.append(
+                f"no zip directory holds exactly the four Telmi markers; found {markers}"
+            )
+        if not any(name.startswith("audios/") or "/audios/" in name for name in names):
+            problems.append("the zip has no audios/ entries")
+    return problems
+
+
 def validate_story_dir(story_dir: Path) -> list[str]:
     """Check a whole story folder against what Telmi-Sync requires on import."""
     problems: list[str] = []

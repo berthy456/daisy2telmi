@@ -8,6 +8,7 @@ import re
 import struct
 import unicodedata
 import uuid
+import zipfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -252,3 +253,18 @@ def build_story(book: Book, out_dir: Path) -> StoryReport:
     )
 
     return StoryReport(out_dir=out_dir, stages=tuple(chapter_names), title_source=title_source)
+
+
+def write_story_zip(story_dir: Path, parent: Path) -> Path:
+    """Package the story folder for Telmi-Sync's zip import.
+
+    `findDirectory` in ConvertZip.js counts the Telmi marker files per zip
+    directory and needs exactly four, so the folder goes in nested one level
+    rather than unpacked at the archive root.
+    """
+    zip_path = parent / f"{story_dir.name}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for entry in sorted(story_dir.rglob("*")):
+            if entry.is_file():
+                archive.write(entry, f"{story_dir.name}/{entry.relative_to(story_dir)}")
+    return zip_path

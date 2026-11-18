@@ -3,16 +3,19 @@ name = "daisy2telmi"
 version = "1.0.0-beta1"
 description = "Convert a DAISY 2.02 audio book pack into a Telmi story folder"
 requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = ["lxml>=4.9"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pyinstaller>=6"]
+gui = ["tkinterdnd2>=0.4"]
+dev = ["pytest>=8", "pyinstaller>=6", "tkinterdnd2>=0.4"]
 
 [project.scripts]
 daisy2telmi = "daisy2telmi.cli:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
