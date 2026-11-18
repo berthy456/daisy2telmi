@@ -18,11 +18,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 DESKTOP = """[Desktop Entry]
 Type=Application
 Name=daisy2telmi
 Comment=Convert a DAISY 2.02 audio book pack into a Telmi story
 Exec=daisy2telmi
+Icon=daisy2telmi
 Terminal=true
 Categories=Utility;
 """
@@ -34,7 +37,7 @@ exec "$here/usr/bin/{binary}" "$@"
 """
 
 
-def build_appdir(binary: Path, appdir: Path) -> Path:
+def build_appdir(binary: Path, appdir: Path, icon: Path | None = None) -> Path:
     appdir = appdir.resolve()
     if appdir.exists():
         shutil.rmtree(appdir)
@@ -50,6 +53,10 @@ def build_appdir(binary: Path, appdir: Path) -> Path:
     apprun.chmod(apprun.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     (appdir / f"{name}.desktop").write_text(DESKTOP, encoding="utf-8")
+    if icon is not None:
+        # appimagetool stops with an error when the desktop file names an icon
+        # the AppDir does not carry.
+        shutil.copy2(icon, appdir / f"{name}{icon.suffix.lower()}")
     return appdir
 
 
@@ -59,13 +66,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("output", type=Path)
     parser.add_argument("--appimagetool", type=Path, help="path to appimagetool; searched on PATH otherwise")
     parser.add_argument("--arch", default="x86_64")
+    parser.add_argument("--icon", type=Path, default=ROOT / "web" / "favicon.svg")
     args = parser.parse_args(argv)
 
     if not args.binary.is_file():
         print(f"error: no binary at {args.binary}", file=sys.stderr)
         return 1
 
-    appdir = build_appdir(args.binary, args.output.with_suffix("").parent / f"{args.output.stem}-AppDir")
+    appdir = build_appdir(
+        args.binary,
+        args.output.with_suffix("").parent / f"{args.output.stem}-AppDir",
+        args.icon if args.icon.is_file() else None,
+    )
     tool = str(args.appimagetool) if args.appimagetool else shutil.which("appimagetool")
     if tool is None:
         print(f"AppDir ready at {appdir}")

@@ -47,6 +47,18 @@ def test_the_desktop_file_points_at_the_binary(tmp_path: Path) -> None:
     assert "Exec=daisy2telmi" in (appdir / "daisy2telmi.desktop").read_text(encoding="utf-8")
 
 
+def test_the_icon_the_desktop_file_names_is_in_the_appdir(tmp_path: Path) -> None:
+    icon = tmp_path / "book.svg"
+    icon.write_text("<svg/>", encoding="utf-8")
+    appdir = build_appdir(make_binary(tmp_path), tmp_path / "AppDir", icon)
+
+    desktop = (appdir / "daisy2telmi.desktop").read_text(encoding="utf-8")
+    assert "Icon=daisy2telmi" in desktop
+    # appimagetool looks for the Icon= value next to the desktop file and stops
+    # the build when it is missing.
+    assert (appdir / "daisy2telmi.svg").is_file()
+
+
 def test_rebuilding_replaces_the_previous_appdir(tmp_path: Path) -> None:
     build_appdir(make_binary(tmp_path), tmp_path / "AppDir")
     (tmp_path / "AppDir" / "stale.txt").write_text("old", encoding="utf-8")
