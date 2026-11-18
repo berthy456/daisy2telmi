@@ -15,33 +15,52 @@
     <main>
       <header>
         <h1>daisy2telmi</h1>
-        <p class="tagline">
-          Drop a DAISY 2.02 audiobook pack, get a Telmi story folder. Nothing is uploaded: the
-          conversion runs in this tab.
-        </p>
+        <p class="tagline" data-i18n="tagline"></p>
+        <label class="lang">
+          <span data-i18n="language"></span>
+          <select id="lang"></select>
+        </label>
       </header>
 
       <section class="card">
         <div id="drop" class="drop" tabindex="0">
-          <p><strong>Drop a DAISY pack here</strong></p>
-          <p class="muted">a <code>.zip</code> pack</p>
+          <p><strong data-i18n="drop_title"></strong></p>
+          <p class="muted" data-i18n="drop_hint"></p>
           <div class="pickers">
             <label class="button">
-              Choose a zip
+              <span data-i18n="pick_zip"></span>
               <input id="picker" type="file" accept=".zip" />
             </label>
             <label class="button">
-              Choose a folder
+              <span data-i18n="pick_folder"></span>
               <input id="folder-picker" type="file" webkitdirectory directory multiple />
             </label>
           </div>
         </div>
 
+        <div class="cover">
+          <div class="cover-head">
+            <h2 data-i18n="cover_title"></h2>
+            <a id="cover-search" class="quiet" target="_blank" rel="noopener" data-i18n="cover_search"></a>
+          </div>
+          <p class="muted" data-i18n="cover_hint"></p>
+          <div class="cover-row">
+            <label class="button">
+              <span data-i18n="cover_pick"></span>
+              <input id="cover-picker" type="file" accept="image/*" />
+            </label>
+            <input id="cover-url" type="url" data-i18n-placeholder="cover_url" />
+            <button id="cover-use" type="button" data-i18n="cover_use"></button>
+            <button id="cover-clear" type="button" hidden data-i18n="cover_clear"></button>
+          </div>
+          <img id="cover-preview" alt="" hidden />
+        </div>
+
         <div id="summary" class="summary" hidden></div>
 
         <div class="actions">
-          <button id="convert" type="button" disabled>Convert</button>
-          <a id="download" class="button primary" hidden download>Download the story zip</a>
+          <button id="convert" type="button" disabled data-i18n="convert"></button>
+          <a id="download" class="button primary" hidden download data-i18n="download"></a>
         </div>
 
         <progress id="bar" max="1" value="0" hidden></progress>
@@ -49,61 +68,30 @@
       </section>
 
       <section class="card">
-        <h2>What you get</h2>
-        <p>
-          One Telmi chapter per top-level DAISY chapter, plus a silent menu card before each one so
-          the story is navigable with the Telmi buttons. The pack's spoken title becomes
-          <code>title.mp3</code>.
-        </p>
-        <p>
-          The zip is named the way Telmi Sync names stories,
-          <code>&lt;category&gt;_&lt;age&gt;_&lt;title&gt;_&lt;uuid&gt;</code>, and imports straight
-          from the <em>Import &rarr; zip</em> menu.
-        </p>
+        <h2 data-i18n="what_title"></h2>
+        <p data-i18n="what_p1"></p>
+        <p data-i18n-html="what_p2"></p>
       </section>
 
       <section class="card">
-        <h2>Before you convert</h2>
+        <h2 data-i18n="before_title"></h2>
         <ul>
-          <li>
-            Audio is kept at the source rate instead of being re-encoded. Telmi's player resamples to
-            44100&nbsp;Hz itself, so it plays, but the quality stays where the DAISY pack left it.
-          </li>
-          <li>
-            Clips are taken as whole files. A pack that trims inside a file will keep the whole file;
-            use the command line tool for exact clip ranges.
-          </li>
-          <li>Only audio books are handled. Synchronised text and TTS are not.</li>
-          <li>Scene images are generated placeholders showing the chapter number.</li>
+          <li data-i18n="before_1"></li>
+          <li data-i18n="before_2"></li>
+          <li data-i18n="before_3"></li>
+          <li data-i18n="before_4"></li>
         </ul>
-        <p>
-          For exact re-encoding and clip trimming, use the
-          <a href="https://github.com/berthy456/daisy2telmi">command line converter</a>, which ships
-          for Windows, Debian and macOS.
-        </p>
+        <p data-i18n-html="cli_line"></p>
       </section>
 
       <section class="card">
-        <h2>The desktop app does more</h2>
-        <p>
-          A browser tab cannot run a speech synthesiser and write its output into the pack, so the
-          chapter cards here stay silent. The desktop converter can speak them: each card says the
-          chapter number, and can ask whether to continue, in English, French, Chinese, Arabic,
-          Turkish, German, Italian, Spanish, Portuguese or Dutch. It also re-encodes audio to
-          Telmi's exact spec, trims clips, and its window can be shown in those same languages.
-        </p>
-        <p>
-          Get it from the
-          <a href="https://github.com/berthy456/daisy2telmi/releases">releases page</a> for Windows,
-          Debian, Ubuntu, macOS or as an AppImage.
-        </p>
+        <h2 data-i18n="desktop_title"></h2>
+        <p data-i18n="desktop_p1"></p>
+        <p data-i18n-html="desktop_line"></p>
       </section>
 
       <footer>
-        <p>
-          GPL-3.0-or-later &middot;
-          <a href="https://github.com/berthy456/daisy2telmi">source</a>
-        </p>
+        <p data-i18n-html="footer_line"></p>
       </footer>
     </main>
 

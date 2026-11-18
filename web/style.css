@@ -49,6 +49,24 @@ header h1 {
   color: var(--muted);
 }
 
+.lang {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.lang select {
+  font: inherit;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+}
+
 .card {
   background: var(--card);
   border: 1px solid var(--line);
@@ -119,6 +137,53 @@ input[type="file"] {
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+}
+
+.cover {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.cover-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.cover-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.cover-row input[type="url"] {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+}
+
+#cover-preview {
+  display: block;
+  margin-top: 0.75rem;
+  width: 8rem;
+  max-width: 100%;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+}
+
+.quiet {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 /* The rules below set `display` on elements that also use the `hidden`
