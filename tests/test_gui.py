@@ -171,6 +171,55 @@ def three_chapters(app: gui.App, monkeypatch, tmp_path) -> Book:
     return book
 
 
+def test_the_cut_levels_wait_until_the_pack_has_been_read(app: gui.App, three_chapters) -> None:
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    assert not any(box.instate(["!disabled"]) for box in page.cut_boxes.values())
+
+
+def test_a_pack_with_one_outline_level_greys_out_the_finer_cuts(
+    app: gui.App, three_chapters, monkeypatch
+) -> None:
+    monkeypatch.setattr(gui, "extract", lambda pack, level="chapter": three_chapters)
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._measure()
+    page._drain()
+
+    assert [box.instate(["!disabled"]) for box in page.cut_boxes.values()] == [True, False, False]
+
+
+def test_a_deeper_outline_opens_every_level_it_adds_parts_to(
+    app: gui.App, three_chapters, monkeypatch, tmp_path
+) -> None:
+    def by_level(pack, level: str = "chapter"):
+        if level == "chapter":
+            return three_chapters
+        count = 6 if level == "paragraph" else 20
+        return Book(
+            "Wesh la fee",
+            tuple(Chapter(f"p{n}", (AudioSegment(tmp_path / f"s{n}.mp3"),)) for n in range(count)),
+        )
+
+    monkeypatch.setattr(gui, "extract", by_level)
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._measure()
+    page._drain()
+
+    assert [box.instate(["!disabled"]) for box in page.cut_boxes.values()] == [True, True, True]
+
+
+def test_a_saved_level_the_pack_cannot_cut_falls_back(
+    app: gui.App, three_chapters, monkeypatch
+) -> None:
+    app.cut = "sentence"
+    monkeypatch.setattr(gui, "extract", lambda pack, level="chapter": three_chapters)
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._measure()
+    page._drain()
+
+    assert page.cut == "chapter"
+    assert page.cut_var.get() == "chapter"
+
+
 def test_the_chapter_window_lists_the_chapters(app: gui.App, three_chapters) -> None:
     page = gui.ChapterList(app, Path("/tmp/pack.zip"))
     page._measure()

@@ -1,3 +1,4 @@
+import { CUT_LEVELS, cutChoices, extractBook } from "./daisy.js";
 import { cropPreviews, loadCoverFile, loadCoverUrl, previewDataUrl, searchUrl } from "./cover.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
@@ -175,7 +176,7 @@ async function convert() {
   bar.value = 0;
 
   try {
-    const entries = await source.loader();
+    const entries = await packEntries();
     log(t("log_files", { n: entries.length }));
     const story = await buildStoryZip(
       entries,
@@ -220,8 +221,38 @@ async function convert() {
   }
 }
 
+/** The pack read once: the cut levels need its outline, and the conversion needs the same files. */
+function packEntries() {
+  source.entries ??= source.loader();
+  return source.entries;
+}
+
+/**
+ * Open the cut levels this pack can cut at, once its outline has been read.
+ * The counts come from the pack's own table of contents and its synced marks,
+ * never from its audio, so a level the pack has nothing to cut at stays shut.
+ */
+async function openCutLevels() {
+  for (const input of cutInputs) input.disabled = true;
+  try {
+    const entries = await packEntries();
+    const choices = cutChoices(CUT_LEVELS.map((level) => extractBook(entries, level).chapters.length));
+    if (!choices.includes(cut)) {
+      cut = choices[Math.min(CUT_LEVELS.indexOf(cut), choices.length - 1)];
+      remember(STORED_CUT, cut);
+    }
+    for (const input of cutInputs) {
+      input.disabled = !choices.includes(input.value);
+      input.checked = input.value === cut;
+    }
+    log(t("log_cut_levels", { levels: choices.map((level) => t(`cut_${level}`)).join(", ") }));
+  } catch (error) {
+    log(t("log_error", { message: error.message ?? error }));
+  }
+}
+
 function setSource(name, loader) {
-  source = { name, loader };
+  source = { name, loader, entries: null };
   convertButton.disabled = false;
   downloadLink.hidden = true;
   downloadLink.removeAttribute("href");
@@ -231,6 +262,7 @@ function setSource(name, loader) {
   coverSearch.href = searchUrl(name.replace(/\.[^.]+$/, ""));
   coverSearch.hidden = false;
   log(t("log_loaded", { name }));
+  openCutLevels();
 }
 
 async function entriesFromZip(file) {

@@ -357,16 +357,24 @@ class ChapterList:
         grid.grid(sticky="nsew")
         grid.columnconfigure(0, weight=1)
 
+        # The levels stay shut until the pack has been read: which of them the
+        # pack can actually cut at is only known once its own outline is in hand.
         chooser = ttk.Frame(grid)
         chooser.grid(row=0, column=0, sticky="w")
         ttk.Label(chooser, text=app.t("cut_level")).pack(side="left")
+        self.cut_var = tk.StringVar(value=self.cut)
+        self.cut_boxes: dict[str, ttk.Radiobutton] = {}
         for level in CUT_LEVELS:
-            ttk.Radiobutton(
+            box = ttk.Radiobutton(
                 chooser,
                 text=app.t(f"cut_{level}"),
+                variable=self.cut_var,
                 value=level,
                 command=lambda chosen=level: self._choose(chosen),
-            ).pack(side="left", padx=(8, 0))
+            )
+            box.state(["disabled"])
+            box.pack(side="left", padx=(8, 0))
+            self.cut_boxes[level] = box
         self.counts = ttk.Label(grid, text=app.t("cut_hint"))
         self.counts.grid(row=1, column=0, sticky="w", pady=(2, 6))
         ttk.Label(grid, text=app.t("chapters_hint")).grid(row=2, column=0, sticky="w", pady=(0, 6))
@@ -415,11 +423,29 @@ class ChapterList:
             self.rows, text=self.app.t("opt_close"), command=self._close
         ).grid(row=len(self.info), column=0, columnspan=5, sticky="e", pady=(10, 0))
 
+    def _offer_levels(self, rows: list[chapters.LevelInfo]) -> None:
+        """Open the levels the pack's own outline can cut at, and grey out the rest.
+
+        A level that gives no more parts than the one above it only repeats that
+        level, so the pack has nothing to cut at there. The audio is never asked.
+        """
+        available: list[str] = []
+        parts = 0
+        for row in rows:
+            if row.parts > parts:
+                available.append(row.level)
+                parts = row.parts
+        for level, box in self.cut_boxes.items():
+            box.state(["!disabled"] if level in available else ["disabled"])
+        if self.cut not in available:
+            self._choose(available[min(CUT_LEVELS.index(self.cut), len(available) - 1)])
+
     def _choose(self, level: str) -> None:
         """A different level is a different book: the old part numbers mean nothing."""
         if level == self.cut:
             return
         self.cut = level
+        self.cut_var.set(level)
         self.app.cut = level
         self.app.dropped = set()
         self._build()
@@ -473,6 +499,7 @@ class ChapterList:
                         for row in payload
                     )
                 )
+                self._offer_levels(payload)
             elif kind == "play":
                 try:
                     chapters.open_preview(payload)

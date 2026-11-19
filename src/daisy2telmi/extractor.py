@@ -344,6 +344,17 @@ def _group(
     return chapters, _merge(front_matter)
 
 
+def _toc_entries(pack: DaisyPack) -> tuple[list[_TocEntry], etree._Element]:
+    """The pack's table of contents, from the NCC when it has one."""
+    toc = pack.toc_file
+    if toc is None:
+        raise DaisyPackError("pack has no table of contents")
+    root = _parse_xml(toc)
+    if root is None:
+        raise DaisyPackError(f"could not parse the table of contents: {toc.name}")
+    return (_ncc_entries(root) if toc is pack.ncc else _ncx_entries(root)), root
+
+
 def extract(pack: DaisyPack, level: str = "chapter") -> Book:
     """Build the part list for a DAISY 2.02 audio pack, cut at `level`.
 
@@ -353,15 +364,8 @@ def extract(pack: DaisyPack, level: str = "chapter") -> Book:
     """
     if level not in CUT_LEVELS:
         raise DaisyPackError(f"unknown cut level: {level}")
-    toc = pack.toc_file
-    if toc is None:
-        raise DaisyPackError("pack has no table of contents")
 
-    root = _parse_xml(toc)
-    if root is None:
-        raise DaisyPackError(f"could not parse the table of contents: {toc.name}")
-
-    entries = _ncc_entries(root) if toc is pack.ncc else _ncx_entries(root)
+    entries, root = _toc_entries(pack)
     metadata = _ncc_meta(root)
 
     if pack.opf is not None:

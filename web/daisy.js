@@ -126,6 +126,24 @@ export class DaisyError extends Error {}
 /** Where to cut the book: at its chapter headings, at every heading, or at every synced mark. */
 export const CUT_LEVELS = ["chapter", "paragraph", "sentence"];
 
+/**
+ * Which cut levels a pack can actually cut at, from the part counts its own
+ * outline gives at each level. A level that adds no parts over the one above it
+ * only repeats that level, so there is nothing there to cut; the audio is never
+ * asked, which is what keeps a silent stretch from looking like a boundary.
+ */
+export function cutChoices(parts) {
+  const available = [];
+  let count = 0;
+  for (const [index, level] of CUT_LEVELS.entries()) {
+    if (parts[index] > count) {
+      available.push(level);
+      count = parts[index];
+    }
+  }
+  return available;
+}
+
 /** Entries as [{name, data}] from a DAISY 2.02 pack; returns the book structure. */
 export function extractBook(entries, level = "chapter") {
   if (!CUT_LEVELS.includes(level)) throw new DaisyError(`unknown cut level: ${level}`);
