@@ -227,8 +227,12 @@ def render(
     return "encoded"
 
 
-def convert_to_spec(src: str | Path, dest: str | Path) -> None:
-    """Re-encode one existing audio file to the Telmi spec."""
+def convert_to_spec(src: str | Path, dest: str | Path, filters: str | None = None) -> None:
+    """Re-encode one existing audio file to the Telmi spec.
+
+    `filters` is an ffmpeg audio chain, used for the spoken cards so every engine
+    lands at one level instead of its own.
+    """
     exe = require_ffmpeg()
     args = [
         exe,
@@ -238,6 +242,10 @@ def convert_to_spec(src: str | Path, dest: str | Path) -> None:
         "-y",
         "-i",
         str(src),
+    ]
+    if filters:
+        args += ["-af", filters]
+    args += [
         "-ar",
         str(SAMPLE_RATE),
         "-ac",
@@ -249,6 +257,24 @@ def convert_to_spec(src: str | Path, dest: str | Path) -> None:
         str(dest),
     ]
     _run(args, f"could not convert {Path(src).name} to {Path(dest).name}")
+
+
+def loudness(path: str | Path) -> float | None:
+    """The file's integrated loudness in LUFS, or None when ffmpeg cannot measure it.
+
+    ffmpeg's own loudness meter is used rather than a peak level: two audiobooks at
+    the same peak can sit 7 LUFS apart, and it is loudness the ear hears.
+    """
+    exe = require_ffmpeg()
+    result = subprocess.run(
+        [exe, "-hide_banner", "-nostats", "-i", str(path), "-af", "ebur128", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+    )
+    found = re.findall(r"I:\s+(-?[\d.]+) LUFS", result.stderr)
+    if not found or found[-1] == "-inf":
+        return None
+    return float(found[-1])
 
 
 def render_silence(dest: str | Path, seconds: float = 1.0) -> None:

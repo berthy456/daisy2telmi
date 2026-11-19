@@ -189,7 +189,7 @@ def build_notes(book: Book) -> dict:
 
 
 def build_card_audio(
-    count: int, announce: Announce, audios: Path
+    count: int, announce: Announce, audios: Path, loudness: str | None = None
 ) -> tuple[list[str | None], bool]:
     """Speak one announcement per card. A failure silences them all: the same
     engine would fail again, and a silent card is still a valid story."""
@@ -208,6 +208,7 @@ def build_card_audio(
             python=announce.python,
             clip=announce.clip,
             device=announce.device,
+            loudness=loudness,
         )
     except (tts.TtsError, audio.AudioError) as exc:
         log.warning("chapter cards stay silent: %s", exc)
@@ -291,8 +292,12 @@ def build_story(
     spoken = 0
     if announce is not None and announce.mode != "off":
         if cut == "chapter":
-            log.info("speaking %d chapter card(s) in %s", count, language(announce.language).name)
-            cards, spoken = build_card_audio(count, announce, audios)
+            # The card is heard over the narration, so it is levelled against it:
+            # one pack's audio sits at -18 LUFS, another's at -25.
+            story = audio.loudness(audios / f"{chapter_names[0]}.mp3")
+            where = f"; the card is levelled to {tts.card_target(story):.1f} LUFS" if story is not None else ""
+            log.info("speaking %d chapter card(s) in %s%s", count, language(announce.language).name, where)
+            cards, spoken = build_card_audio(count, announce, audios, tts.card_loudness(story))
         else:
             log.info("playing the first %.0f s of each of the %d part(s) on its card", CARD_SNIPPET_SECONDS, count)
             cards = build_snippets(book.chapters, audios)

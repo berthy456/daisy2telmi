@@ -40,6 +40,26 @@ DEVICES = (AUTO, "cpu", "mps", "cuda")
 
 SPEAKING_RATE = 150  # words per minute, espeak-ng's unit
 
+# A card is heard over the narration, so it is levelled instead of left at whatever
+# the engine made: espeak lands near -25 LUFS and `say` near -16 on the same words.
+CARD_TARGET = -20.0
+
+
+def card_target(story: float | None) -> float:
+    """The LUFS a card is levelled to: a little under the story it interrupts.
+
+    Published packs sit anywhere between -18 and -25 LUFS, so one fixed target is
+    too loud for a quiet pack and too soft for a loud one.
+    """
+    if story is None:
+        return CARD_TARGET
+    return min(max(story - 2.0, -26.0), -16.0)
+
+
+def card_loudness(story: float | None) -> str:
+    """The ffmpeg chain that brings a card to `card_target`."""
+    return f"loudnorm=I={card_target(story):.1f}:TP=-2:LRA=11"
+
 
 class TtsError(RuntimeError):
     """Raised when no engine can produce the audio."""
@@ -259,18 +279,26 @@ def _check(argv: list[str], label: str, env: dict[str, str] | None = None) -> su
     return result
 
 
-def _to_spec(raw: Path, dest: Path, engine: str, phrase: str) -> None:
+def _to_spec(raw: Path, dest: Path, engine: str, phrase: str, loudness: str) -> None:
     if not raw.is_file() or raw.stat().st_size == 0:
         raise TtsError(f"{engine} produced no audio for {phrase!r}")
-    audio.convert_to_spec(raw, dest)
+    audio.convert_to_spec(raw, dest, loudness)
 
 
-def _speak_one(phrase: str, lang: Language, dest: Path, engine: str, voice: str | None, command: str | None) -> None:
+def _speak_one(
+    phrase: str,
+    lang: Language,
+    dest: Path,
+    engine: str,
+    voice: str | None,
+    command: str | None,
+    loudness: str,
+) -> None:
     suffix = ".aiff" if engine == SAY else ".wav"
     with tempfile.TemporaryDirectory(prefix="daisy2telmi-tts-") as tmp:
         raw = Path(tmp) / f"speech{suffix}"
         _render(engine, phrase, lang, voice, command, raw)
-        _to_spec(raw, dest, engine, phrase)
+        _to_spec(raw, dest, engine, phrase, loudness)
     log.debug("speech via %s: %r -> %s", engine, phrase, dest.name)
 
 
@@ -280,7 +308,8 @@ def _speak_batch(
     dests: list[Path],
     clip: str | None,
     python: str | None,
-    device: str = AUTO,
+    device: str,
+    loudness: str,
 ) -> None:
     """One Chatterbox process for the whole batch: loading the model costs more
     than speaking a chapter number, and it would otherwise happen once per card."""
@@ -309,7 +338,7 @@ def _speak_batch(
             if line.startswith("chatterbox "):
                 log.info(line)
         for phrase, source, dest in zip(phrases, raw, dests):
-            _to_spec(source, dest, CHATTERBOX, phrase)
+            _to_spec(source, dest, CHATTERBOX, phrase, loudness)
 
 
 def synthesize_all(
@@ -322,8 +351,13 @@ def synthesize_all(
     python: str | None = None,
     clip: str | None = None,
     device: str = AUTO,
+    loudness: str | None = None,
 ) -> None:
-    """Speak every phrase into `dests`, one file each."""
+    """Speak every phrase into `dests`, one file each.
+
+    `loudness` is the ffmpeg chain the phrase is levelled to; it defaults to
+    `card_loudness(None)`, the level a card takes when the story was never measured.
+    """
     if not phrases:
         return
     if len(phrases) != len(dests):
@@ -332,11 +366,12 @@ def synthesize_all(
     chosen = resolve(engine, lang, python)
     if chosen == OFF:
         raise TtsError("speech is switched off")
+    chain = loudness or card_loudness(None)
     if chosen == CHATTERBOX:
-        _speak_batch(list(phrases), lang, list(dests), clip, python, device)
+        _speak_batch(list(phrases), lang, list(dests), clip, python, device, chain)
         return
     for phrase, dest in zip(phrases, dests):
-        _speak_one(phrase, lang, dest, chosen, voice, command)
+        _speak_one(phrase, lang, dest, chosen, voice, command, chain)
 
 
 def synthesize(

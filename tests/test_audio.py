@@ -127,3 +127,41 @@ def test_the_joined_file_is_the_two_clips_end_to_end(tmp_path: Path) -> None:
     audio.render([AudioSegment(clip) for clip in clips], out)
     assert audio.duration(out) == pytest.approx(2.5, abs=0.2)
     assert not list(tmp_path.glob("*.concat"))
+
+
+def _tone(dest: Path, *filters: str) -> None:
+    subprocess.run(
+        [
+            audio.require_ffmpeg(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=1000:duration=2",
+            *(["-af", ",".join(filters)] if filters else []),
+            "-c:a",
+            "libmp3lame",
+            str(dest),
+        ],
+        check=True,
+    )
+
+
+@requires_ffmpeg
+def test_the_loudness_meter_follows_the_level_of_a_voice(tmp_path: Path) -> None:
+    loud, quiet = tmp_path / "loud.mp3", tmp_path / "quiet.mp3"
+    _tone(loud)
+    _tone(quiet, "volume=-10dB")
+    # The absolute number depends on how loud the source was, so the pair is what
+    # matters: a card levelled against a story has to hear the story's own spread.
+    assert audio.loudness(loud) - audio.loudness(quiet) == pytest.approx(10.0, abs=0.5)
+
+
+@requires_ffmpeg
+def test_silence_reads_as_the_floor_rather_than_a_real_level(tmp_path: Path) -> None:
+    quiet = tmp_path / "quiet.mp3"
+    audio.render_silence(quiet, 1.0)
+    assert audio.loudness(quiet) <= -70.0

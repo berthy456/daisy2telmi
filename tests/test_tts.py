@@ -232,3 +232,21 @@ def test_auto_takes_the_apple_gpu_when_there_is_one() -> None:
 def test_every_phrase_needs_an_output_file() -> None:
     with pytest.raises(tts.TtsError, match="needs an output file"):
         tts.synthesize_all(["un", "deux"], "fr", [Path("/tmp/a.mp3")])
+
+
+def test_a_card_is_levelled_a_little_under_the_story_it_interrupts() -> None:
+    assert tts.card_target(None) == tts.CARD_TARGET
+    assert tts.card_target(-18.3) == pytest.approx(-20.3)
+    assert tts.card_target(-24.7) == pytest.approx(-26.0), "a quiet pack keeps its cards quiet"
+    assert tts.card_target(-12.0) == pytest.approx(-16.0), "a loud pack does not get shouted over"
+    assert tts.card_loudness(-18.3) == "loudnorm=I=-20.3:TP=-2:LRA=11"
+
+
+@requires_espeak
+@requires_ffmpeg
+def test_a_spoken_card_lands_on_its_target(tmp_path: Path) -> None:
+    card = tmp_path / "c0.mp3"
+    tts.synthesize_all(["chapter 3"], "en", [card], engine=tts.ESPEAK, loudness=tts.card_loudness(-18.3))
+    # loudnorm needs a few seconds to settle, so a one-word card lands near the
+    # target; the point is that espeak's own -25 LUFS is no longer what we hear.
+    assert audio.loudness(card) == pytest.approx(-20.3, abs=3.0)
