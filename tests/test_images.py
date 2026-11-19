@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from daisy2telmi import images
+from daisy2telmi.cli import FORMATS
 from daisy2telmi.i18n import LANGUAGES
 
 NO_FFMPEG = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -69,6 +70,40 @@ def test_a_card_shows_the_opening_words_in_three_lines() -> None:
 def test_words_the_font_cannot_write_leave_the_card_without_lines() -> None:
     assert images.card_words("これは、私（わたし）が小さいときに") == []
     assert images.card_words("") == []
+
+
+def test_each_player_draws_at_its_own_screen() -> None:
+    assert images.screen("telmi") == ((640, 480), (512, 512))
+    assert images.screen("lunii") == ((320, 240), (320, 240))
+    assert images.screen("flam") == ((320, 212), (104, 136))
+    assert set(images.SCREENS) == set(FORMATS)
+
+
+def test_a_smaller_card_shrinks_everything_around_it() -> None:
+    """The font is a fixed 5x7 grid, so the card's furniture scales with its screen."""
+    assert images._layout(640) == (24, (160, 120), 4, 6)
+    assert images._layout(320) == (12, (80, 60), 2, 3)
+
+
+def test_a_smaller_card_holds_the_same_words() -> None:
+    sentence = "the second of six parts, and the words keep going past the line"
+    assert images.card_words(sentence, 320, 2) == images.card_words(sentence)
+
+
+def test_the_lettering_of_every_card_stays_inside_its_screen() -> None:
+    for player, (scene, _) in images.SCREENS.items():
+        margin, thumb, scale, number_scale = images._layout(scene[0])
+        lines = images.card_words("the second of six parts, and the words keep going", scene[0], scale)
+        bottom = margin + thumb[1] + margin + (len(lines) - 1) * scale * 9 + 7 * scale
+        assert bottom <= scene[1], player
+        number = images.glyph_rows("213/213")
+        assert margin + len(number[0]) * number_scale <= scene[0], player
+
+
+def test_the_crop_preview_keeps_the_players_ratio() -> None:
+    assert images.preview_size("telmi") == (160, 120)
+    assert images.preview_size("lunii") == (160, 120)
+    assert images.preview_size("flam") == (160, 106)
 
 
 def test_a_part_below_chapter_level_is_numbered_without_a_word() -> None:

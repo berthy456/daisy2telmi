@@ -259,12 +259,14 @@ def build_story(
     cut: str = "chapter",
     crop: str = "center",
     lunii_dir: Path | None = None,
+    player: str = "telmi",
 ) -> StoryReport:
     """Render every chapter to `audios/` and write the story's JSON files and images.
 
     `cover` is the user's picture: it becomes the title image, the cover and the
     background of every card, which carries the chapter number and the total.
     `crop` says which band of it survives the three different aspect ratios.
+    `player` decides the size every picture is drawn at.
 
     `lunii_dir` gets the same pictures drawn again for a greyscale Lunii screen:
     a plain player has four grey levels and no colour panel, so its set is drawn
@@ -313,15 +315,18 @@ def build_story(
     texts = [chapter.text for chapter in book.chapters]
 
     def draw(target: Path, style: str) -> None:
-        """The title image, the cover and every card, in the palette of one screen."""
+        """The title image, the cover and every card, at one player's sizes."""
+        scene, cover_size = images.screen(player)
         if cover is not None:
-            images.write_cover(cover, target, labels, texts, crop, style)
+            images.write_cover(cover, target, labels, texts, crop, style, scene, cover_size)
             return
         (target / "images").mkdir(parents=True, exist_ok=True)
         for index, text in enumerate(texts):
-            (target / "images" / f"m{index}.png").write_bytes(images.card_png(labels[index], text, style=style))
-        (target / images.TITLE_IMAGE).write_bytes(images.placeholder_png(style=style))
-        (target / images.COVER_IMAGE).write_bytes(images.placeholder_png(*images.COVER_SIZE, style=style))
+            (target / "images" / f"m{index}.png").write_bytes(
+                images.card_png(labels[index], text, *scene, style=style)
+            )
+        (target / images.TITLE_IMAGE).write_bytes(images.placeholder_png(*scene, style=style))
+        (target / images.COVER_IMAGE).write_bytes(images.placeholder_png(*cover_size, style=style))
 
     log.info("drawing %d card(s)%s", count, "" if cover is None else f" from the cover {cover.name}")
     draw(out_dir, "colour")

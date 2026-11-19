@@ -24,6 +24,20 @@ COVER_IMAGE = "cover.png"
 IMAGE_SIZE = (640, 480)
 COVER_SIZE = (512, 512)
 
+# What each player's screen shows, so the picture is drawn where it will be seen:
+# a cover cropped for a 320x240 Lunii keeps the band that Lunii displays.
+SCREENS = {
+    "telmi": (IMAGE_SIZE, COVER_SIZE),
+    "lunii": ((320, 240), (320, 240)),
+    "flam": ((320, 212), (104, 136)),
+}
+
+
+def screen(player: str) -> tuple[tuple[int, int], tuple[int, int]]:
+    """The scene and cover sizes of one player."""
+    return SCREENS[player]
+
+
 BACKGROUND = (26, 30, 42)
 BAND = (78, 92, 122)
 FOREGROUND = (214, 222, 238)
@@ -136,7 +150,22 @@ CARD_LINES = 3
 CARD_WORDS = 20
 CARD_SCALE = 4
 NUMBER_SCALE = 6
-CARD_THUMB = (160, 120)
+
+
+def _layout(width: int) -> tuple[int, tuple[int, int], int, int]:
+    """The margin, thumbnail and two lettering sizes of a card this wide.
+
+    The built-in font is a fixed 5x7 grid, so a smaller screen shrinks everything
+    around it by the same step and the card still holds the same words.
+    """
+    step = width / IMAGE_SIZE[0]
+    thumb = (width // 4, width // 4 * 3 // 4)
+    return (
+        max(6, round(MARGIN * step)),
+        thumb,
+        max(1, round(CARD_SCALE * step)),
+        max(2, round(NUMBER_SCALE * step)),
+    )
 
 
 def _drawable(text: str) -> str:
@@ -153,7 +182,7 @@ def card_words(text: str, width: int = IMAGE_SIZE[0], scale: int = CARD_SCALE) -
     words = _drawable(text).split()[:CARD_WORDS]
     if not words:
         return []
-    columns = (width - 2 * MARGIN) // (scale * 6)
+    columns = (width - 2 * _layout(width)[0]) // (scale * 6)
     lines: list[str] = []
     for word in words:
         if lines and len(lines[-1]) + 1 + len(word) <= columns:
@@ -181,15 +210,16 @@ def _stamp(ink: list[bytearray], left: int, top: int, glyph: list[str], scale: i
                                 line[px] = value
 
 
-def _card_grid(label: str, lines: list[str], width: int, height: int) -> list[bytearray]:
+def _card_grid(label: str, text: str, width: int, height: int) -> list[bytearray]:
     """One card's lettering: the number top right, its opening words under the thumbnail."""
+    margin, thumb, scale, number_scale = _layout(width)
     ink = [bytearray(width) for _ in range(height)]
     number = glyph_rows(label)
-    _stamp(ink, width - MARGIN - len(number[0]) * NUMBER_SCALE, MARGIN, number, NUMBER_SCALE, 1)
-    top = MARGIN + CARD_THUMB[1] + MARGIN
-    for offset, line in enumerate(lines):
+    _stamp(ink, width - margin - len(number[0]) * number_scale, margin, number, number_scale, 1)
+    top = margin + thumb[1] + margin
+    for offset, line in enumerate(card_words(text, width, scale)):
         glyph = glyph_rows(line)
-        _stamp(ink, MARGIN, top + offset * CARD_SCALE * 9, glyph, CARD_SCALE, 1)
+        _stamp(ink, margin, top + offset * scale * 9, glyph, scale, 1)
     return ink
 
 
@@ -222,7 +252,7 @@ def card_png(
     style: str = "colour",
 ) -> bytes:
     """A card on its own: the part number, and the words it opens with when we can draw them."""
-    return _grid_png(_card_grid(label, card_words(text), width, height), _PALETTE[style]["background"], style)
+    return _grid_png(_card_grid(label, text, width, height), _PALETTE[style]["background"], style)
 
 
 def card_layer_png(
@@ -233,7 +263,7 @@ def card_layer_png(
     style: str = "colour",
 ) -> bytes:
     """The same lettering on a transparent canvas, to lay over a cropped cover."""
-    return _grid_png(_card_grid(label, card_words(text), width, height), None, style)
+    return _grid_png(_card_grid(label, text, width, height), None, style)
 
 
 def card_label(language_code: str, number: int, total: int, word: bool = True) -> str:
@@ -306,6 +336,12 @@ def _flatten(ffmpeg: str, png: Path) -> None:
 PREVIEW_SIZE = (160, 120)
 
 
+def preview_size(player: str, width: int = PREVIEW_SIZE[0]) -> tuple[int, int]:
+    """The crop preview, at the ratio of the player chosen."""
+    scene, _ = screen(player)
+    return width, round(width * scene[1] / scene[0])
+
+
 def crop_previews(source: Path, size: tuple[int, int] = PREVIEW_SIZE) -> dict[str, bytes]:
     """Every crop band of `source`, small, so the choice can be made by eye."""
     ffmpeg = require_ffmpeg()
@@ -344,11 +380,14 @@ def write_cover(
     texts: Sequence[str],
     crop: str = "center",
     style: str = "colour",
+    scene: tuple[int, int] = IMAGE_SIZE,
+    cover_size: tuple[int, int] = COVER_SIZE,
 ) -> None:
     """`title.png`, `cover.png` and one card per part, all from `source`.
 
     `style` is the screen the pack is drawn for: `bw` flattens the picture to the
     four Lunii greys and turns the card inside out, white ground and black ink.
+    `scene` and `cover_size` are that player's own sizes.
 
     A card is a plain background with a small thumbnail of the cover, not the
     cover blown up behind the words: a book cut to the sentence level has
@@ -357,23 +396,24 @@ def write_cover(
     ffmpeg = require_ffmpeg()
     images = out_dir / "images"
     images.mkdir(parents=True, exist_ok=True)
+    margin, thumb_size, _, _ = _layout(scene[0])
 
     with tempfile.TemporaryDirectory(prefix="daisy2telmi-") as tmp:
         scratch = Path(tmp)
         base = scratch / "base.png"
         square = scratch / "square.png"
-        thumb = scratch / "thumb.png"
+        thumbnail = scratch / "thumb.png"
         plain = scratch / "plain.png"
         card_base = scratch / "card.png"
-        _crop(ffmpeg, source, IMAGE_SIZE, base, crop)
-        _crop(ffmpeg, source, COVER_SIZE, square, crop)
-        _crop(ffmpeg, source, CARD_THUMB, thumb, crop)
-        plain.write_bytes(flat_png(style=style))
-        _overlay(ffmpeg, plain, thumb, card_base, MARGIN, MARGIN)
+        _crop(ffmpeg, source, scene, base, crop)
+        _crop(ffmpeg, source, cover_size, square, crop)
+        _crop(ffmpeg, source, thumb_size, thumbnail, crop)
+        plain.write_bytes(flat_png(*scene, style=style))
+        _overlay(ffmpeg, plain, thumbnail, card_base, margin, margin)
 
         for index, (label, text) in enumerate(zip(labels, texts)):
             layer = scratch / f"layer{index}.png"
-            layer.write_bytes(card_layer_png(label, text, style=style))
+            layer.write_bytes(card_layer_png(label, text, *scene, style=style))
             _overlay(ffmpeg, card_base, layer, images / f"m{index}.png", 0, 0)
             if style == "bw":
                 # Flattened last, once the compositing is done, so a card cannot

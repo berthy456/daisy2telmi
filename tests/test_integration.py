@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import struct
 import subprocess
 import zipfile
 from pathlib import Path
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from daisy2telmi import audio, images
-from daisy2telmi.cli import main
+from daisy2telmi.cli import FORMATS, main
 from daisy2telmi.detector import open_pack
 from daisy2telmi.extractor import extract
 from daisy2telmi.telmi_builder import story_dir_name
@@ -346,6 +347,23 @@ def test_the_lunii_format_draws_every_picture_in_four_greys(tmp_path, monkeypatc
     assert (story / "title.png").read_bytes() != (tmp_path / "assets" / "thumbnail.png").read_bytes(), (
         "the story folder keeps its colour pictures"
     )
+
+
+def _png_size(path: Path) -> tuple[int, int]:
+    return struct.unpack(">II", path.read_bytes()[16:24])
+
+
+@requires_pack
+def test_each_format_draws_at_its_own_screen(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for player in FORMATS:
+        out = tmp_path / f"out-{player}"
+        assert main([str(PACK), str(out), "--format", player]) == 0
+        story = next(entry for entry in out.iterdir() if entry.is_dir())
+        scene, cover_size = images.screen(player)
+        assert _png_size(story / "title.png") == scene, player
+        assert _png_size(story / "cover.png") == cover_size, player
+        assert _png_size(next((story / "images").glob("m*.png"))) == scene, player
 
 
 @requires_pack

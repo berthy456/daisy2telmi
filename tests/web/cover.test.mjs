@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { COVER_SIZE, IMAGE_SIZE, isReadableUrl, searchUrl } = await import("../../web/cover.js");
+const { COVER_SIZE, IMAGE_SIZE, isReadableUrl, screen, searchUrl } = await import("../../web/cover.js");
 
 test("the search link is a Google image search for the title", () => {
   const url = new URL(searchUrl("ごんぎつね Ruby"));
@@ -27,4 +27,10 @@ test("only http(s) links are fetched", () => {
 test("the image sizes are the ones Telmi uses", () => {
   assert.deepEqual(IMAGE_SIZE, [640, 480]);
   assert.deepEqual(COVER_SIZE, [512, 512]);
+});
+
+test("each player draws at its own screen", () => {
+  assert.deepEqual(screen("telmi"), [[640, 480], [512, 512]]);
+  assert.deepEqual(screen("lunii"), [[320, 240], [320, 240]]);
+  assert.deepEqual(screen("flam"), [[320, 212], [104, 136]]);
 });

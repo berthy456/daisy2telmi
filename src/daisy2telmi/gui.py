@@ -222,6 +222,9 @@ class App:
     def _pick_format(self) -> None:
         self.options["format"] = self.format_var.get()
         settings.save(self.options)
+        # The crop preview shows the chosen player's screen, so it is redrawn.
+        self._previews = None
+        self._show_crop()
 
     def _show_crop(self) -> None:
         """Draw each crop band on its own button: which band a tall cover loses
@@ -232,13 +235,14 @@ class App:
                 box.configure(image="")
             self._crop_images.clear()
             return
-        if self._previews is None or self._previews[0] != str(source):
+        if self._previews is None or self._previews[0] != (str(source), self.format_var.get()):
             try:
-                self._previews = (str(source), images.crop_previews(source))
+                size = images.preview_size(self.format_var.get())
+                self._previews = (str(source), self.format_var.get(), images.crop_previews(source, size))
             except images.ImageError as exc:
                 self._append(f"ERROR: {exc}")
                 return
-        for mode, png in self._previews[1].items():
+        for mode, png in self._previews[2].items():
             self._crop_images[mode] = tk.PhotoImage(data=png)
             self.crop_boxes[mode].configure(image=self._crop_images[mode])
 

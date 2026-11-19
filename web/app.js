@@ -1,5 +1,5 @@
 import { CUT_LEVELS, cutChoices, extractBook } from "./daisy.js";
-import { cropPreviews, loadCoverFile, loadCoverUrl, previewDataUrl, searchUrl } from "./cover.js";
+import { cropPreviews, loadCoverFile, loadCoverUrl, previewDataUrl, screen, searchUrl } from "./cover.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
 import { buildStudioZip } from "./lunii.js";
@@ -100,6 +100,7 @@ function startFormat() {
     input.addEventListener("change", () => {
       format = input.value;
       remember(STORED_FORMAT, format);
+      refreshCrops();
     });
   }
 }
@@ -117,9 +118,10 @@ function startCrop() {
 }
 
 /** Each crop band drawn small under the cover picker: which band a tall cover
- * loses is not something a word can tell you. */
+ * loses is not something a word can tell you. The box keeps the chosen player's
+ * ratio, so it shows what that player will show. */
 async function showCrops(bitmap) {
-  const previews = await cropPreviews(bitmap);
+  const previews = await cropPreviews(bitmap, screen(format)[0]);
   for (const url of cropUrls) URL.revokeObjectURL(url);
   cropUrls = [];
   for (const input of cropInputs) {
@@ -130,6 +132,14 @@ async function showCrops(bitmap) {
   cropRow.hidden = false;
 }
 
+/** Redraw the crop bands, for a new cover or for a new player's screen. */
+function refreshCrops() {
+  if (!cover) return;
+  showCrops(cover).catch(() => {
+    cropRow.hidden = true;
+  });
+}
+
 function setCover(bitmap) {
   if (cover) cover.close();
   cover = bitmap;
@@ -137,9 +147,7 @@ function setCover(bitmap) {
   coverPreview.hidden = false;
   coverClear.hidden = false;
   log(t("log_cover_set", { w: bitmap.width, h: bitmap.height }));
-  showCrops(bitmap).catch(() => {
-    cropRow.hidden = true;
-  });
+  refreshCrops();
 }
 
 function clearCover() {
@@ -191,6 +199,7 @@ async function saveStory() {
         cover,
         crop,
         cut,
+        player: format,
         style: format === "lunii" ? "bw" : "colour",
         t: (key) => t(key),
         cardLabel: (number, total, worded) => t(worded ? "card_label" : "card_number", { n: number, total }),

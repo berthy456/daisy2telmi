@@ -254,10 +254,10 @@ def convert(
                 # second set in a scratch folder and build the archive from those.
                 with tempfile.TemporaryDirectory(prefix="daisy2telmi-lunii-") as scratch:
                     grey = Path(scratch)
-                    report = build_story(book, target, announce, cover, cut, crop, grey)
+                    report = build_story(book, target, announce, cover, cut, crop, grey, player=fmt)
                     archive = write_studio_zip(target, image_dir=grey)
             else:
-                report = build_story(book, target, announce, cover, cut, crop)
+                report = build_story(book, target, announce, cover, cut, crop, player=fmt)
                 archive = write_story_zip(target, target.parent)
     except ChapterError as exc:
         log.error("%s", exc)

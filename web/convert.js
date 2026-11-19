@@ -1,6 +1,6 @@
 // DAISY zip in, Telmi story zip out, entirely in the browser.
 
-import { COVER_SIZE, IMAGE_SIZE, cardPng, coverPng } from "./cover.js";
+import { cardPng, coverPng, screen } from "./cover.js";
 import { extractBook, normalizePath } from "./daisy.js";
 import { concatSegments } from "./mp3.js";
 import { placeholderPng } from "./png.js";
@@ -35,6 +35,7 @@ function firstSeconds(segments, bytesOf, seconds) {
  * options.cover: an ImageBitmap to crop into every scene image.
  * options.crop: "top", "center" or "bottom" — the band of the cover to keep.
  * options.style: "colour", or "bw" for a plain Lunii's four grey levels.
+ * options.player: "telmi", "lunii" or "flam" — whose screen sizes every picture is drawn at.
  * options.cardLabel(number, total, worded): the words drawn on a card.
  * options.cardAudio(number): bytes for the card to say, or null to leave it silent.
  */
@@ -53,6 +54,7 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
   const cover = options.cover ?? null;
   const crop = options.crop ?? "center";
   const style = options.style ?? "colour";
+  const [scene, coverSize] = screen(options.player ?? "telmi");
   const cardLabel = options.cardLabel ?? ((number, count) => `Chapter ${number}/${count}`);
   const say = options.t ?? ((key) => key);
   const spoken = options.cardAudio ?? (async () => null);
@@ -74,7 +76,7 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
         chapter.text,
         cover,
         crop,
-        ...IMAGE_SIZE,
+        ...scene,
         style,
       ),
     });
@@ -105,11 +107,11 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
 
   files.push({
     name: `${dirName}/title.png`,
-    data: cover ? await coverPng(cover, ...IMAGE_SIZE, crop, style) : await placeholderPng(...IMAGE_SIZE, style),
+    data: cover ? await coverPng(cover, ...scene, crop, style) : await placeholderPng(...scene, style),
   });
   files.push({
     name: `${dirName}/cover.png`,
-    data: cover ? await coverPng(cover, ...COVER_SIZE, crop, style) : await placeholderPng(...COVER_SIZE, style),
+    data: cover ? await coverPng(cover, ...coverSize, crop, style) : await placeholderPng(...coverSize, style),
   });
   step(say("prog_title_images"));
 

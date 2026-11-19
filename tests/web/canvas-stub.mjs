@@ -8,6 +8,9 @@ export const DRAWS = [];
 // Every picture the page flattens: its size and the colour values it ended up with.
 export const FLATTENS = [];
 
+// Every line the page writes: the line, where, and the card it was written on.
+export const TEXTS = [];
+
 export class StubCanvas {
   constructor(width, height) {
     this.width = width;
@@ -20,7 +23,10 @@ export class StubCanvas {
     return {
       fillRect: () => {},
       drawImage: (...args) => DRAWS.push({ width: card.width, height: card.height, args }),
-      fillText: (line, x, y) => card.text.push([line, x, y]),
+      fillText: (line, x, y) => {
+        card.text.push([line, x, y]);
+        TEXTS.push([line, x, y, card.width, card.height]);
+      },
       strokeText: () => {},
       measureText: (line) => ({ width: [...line].length * 10 }),
       // A brightness ramp across each row, so a test can see which level every
