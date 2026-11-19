@@ -100,12 +100,27 @@ class App:
         ttk.Entry(grid, textvariable=self.out_var).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self._button(grid, "browse_output", self._pick_out_dir).grid(row=3, column=2, sticky="e", padx=(6, 0))
 
-        self._label(grid, "cover_label").grid(row=4, column=0, sticky="w", pady=(0, 2))
-        ttk.Entry(grid, textvariable=self.cover_var).grid(row=4, column=1, sticky="ew", padx=(6, 0))
-        self._button(grid, "browse_cover", self._pick_cover).grid(row=4, column=2, sticky="e", padx=(6, 0))
+        # The player comes first: its screen decides the size every picture is drawn at.
+        format_row = ttk.Frame(grid)
+        format_row.grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        self._label(format_row, "format_label").pack(side="left", padx=(0, 10))
+        for player in FORMATS:
+            box = ttk.Radiobutton(
+                format_row,
+                text=self.t(f"fmt_{player}"),
+                variable=self.format_var,
+                value=player,
+                command=self._pick_format,
+            )
+            self._labels[f"fmt_{player}"] = box
+            box.pack(side="left", padx=(0, 12))
+
+        self._label(grid, "cover_label").grid(row=5, column=0, sticky="w", pady=(0, 2))
+        ttk.Entry(grid, textvariable=self.cover_var).grid(row=5, column=1, sticky="ew", padx=(6, 0))
+        self._button(grid, "browse_cover", self._pick_cover).grid(row=5, column=2, sticky="e", padx=(6, 0))
 
         crop_row = ttk.Frame(grid)
-        crop_row.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        crop_row.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
         self._label(crop_row, "cover_crop_label").pack(side="left", padx=(0, 10))
         self.crop_boxes: dict[str, ttk.Radiobutton] = {}
         for mode in images.CROP_MODES:
@@ -122,24 +137,10 @@ class App:
             self.crop_boxes[mode] = box
         self.cover_var.trace_add("write", lambda *_: self._show_crop())
 
-        format_row = ttk.Frame(grid)
-        format_row.grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
-        self._label(format_row, "format_label").pack(side="left", padx=(0, 10))
-        for player in FORMATS:
-            box = ttk.Radiobutton(
-                format_row,
-                text=self.t(f"fmt_{player}"),
-                variable=self.format_var,
-                value=player,
-                command=self._pick_format,
-            )
-            self._labels[f"fmt_{player}"] = box
-            box.pack(side="left", padx=(0, 12))
-
         controls = ttk.Frame(grid)
         controls.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 8))
-        self.convert_button = self._button(controls, "convert", self._start)
-        self.convert_button.pack(side="left")
+        self.save_button = self._button(controls, "save", self._start)
+        self.save_button.pack(side="left")
         self._button(controls, "options", self._open_options).pack(side="left", padx=12)
         self._button(controls, "chapters", self._open_chapters).pack(side="left")
         self.force_box = ttk.Checkbutton(
@@ -279,7 +280,7 @@ class App:
             return
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        self.convert_button.state(["disabled"])
+        self.save_button.state(["disabled"])
         self.progress.start(12)
         announce = self.announce()
         dropped = sorted(self.dropped)
@@ -321,7 +322,7 @@ class App:
                 break
             if item[0] == "code":
                 self.progress.stop()
-                self.convert_button.state(["!disabled"])
+                self.save_button.state(["!disabled"])
                 self._append("done" if item[1] == 0 else f"failed with exit code {item[1]}")
             else:
                 self._append(item)

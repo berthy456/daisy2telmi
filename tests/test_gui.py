@@ -30,7 +30,14 @@ def app():
 
 
 def test_the_window_builds(app: gui.App) -> None:
-    assert app.convert_button.instate(["!disabled"])
+    assert app.save_button.instate(["!disabled"])
+
+
+def test_the_player_is_chosen_before_the_cover(app: gui.App) -> None:
+    """The player decides the size of every picture, so it is asked before the cover."""
+    player_row = int(app._labels["fmt_telmi"].master.grid_info()["row"])
+    cover_row = int(app._labels["cover_label"].grid_info()["row"])
+    assert player_row < cover_row
 
 
 def test_conversion_log_lines_reach_the_window(app: gui.App) -> None:
@@ -106,7 +113,7 @@ def test_a_dropped_path_becomes_the_pack(app: gui.App) -> None:
 def test_the_window_labels_follow_the_language(app: gui.App) -> None:
     app.language_var.set("fr")
     app._relabel()
-    assert app._labels["convert"].cget("text") == "Convertir"
+    assert app._labels["save"].cget("text") == "Enregistrer le zip"
     assert app._labels["overwrite"].cget("text").startswith("Ecraser")
 
 
@@ -121,7 +128,7 @@ def test_the_options_page_saves_what_it_shows(app: gui.App, tmp_path, monkeypatc
     assert app.options["autoplay"] is True
     saved = (tmp_path / "daisy2telmi" / "config.json").read_text(encoding="utf-8")
     assert '"language": "fr"' in saved
-    assert app._labels["convert"].cget("text") == "Convertir"
+    assert app._labels["save"].cget("text") == "Enregistrer le zip"
 
 
 def test_the_chatterbox_device_choice_is_saved(app: gui.App, tmp_path, monkeypatch) -> None:

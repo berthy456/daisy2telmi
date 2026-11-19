@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>daisy2telmi — DAISY 2.02 to Telmi story converter</title>
+    <title>daisy2telmi — DAISY 2.02 to Telmi, Lunii or Flam story converter</title>
     <meta
       name="description"
-      content="Convert a DAISY 2.02 audiobook pack into a Telmi story folder, entirely in your browser."
+      content="Convert a DAISY 2.02 audiobook pack into a Telmi, Lunii or Flam story, entirely in your browser."
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./style.css" />
@@ -38,24 +38,21 @@
           </div>
         </div>
 
-        <div class="cut">
-          <h2 data-i18n="cut_title"></h2>
-          <p class="muted" data-i18n="cut_hint"></p>
-          <!-- Shut until the pack has been read: which levels it can cut at comes from its own outline. -->
-          <div class="cut-row">
-            <label>
-              <input id="cut-chapter" type="radio" name="cut" value="chapter" checked disabled />
-              <span data-i18n="cut_chapter"></span>
-            </label>
-            <label>
-              <input id="cut-paragraph" type="radio" name="cut" value="paragraph" disabled />
-              <span data-i18n="cut_paragraph"></span>
-            </label>
-            <label>
-              <input id="cut-sentence" type="radio" name="cut" value="sentence" disabled />
-              <span data-i18n="cut_sentence"></span>
-            </label>
-          </div>
+        <!-- The player comes first: its screen decides the size every picture is drawn at. -->
+        <div class="format-row">
+          <span class="muted" data-i18n="format_label"></span>
+          <label>
+            <input type="radio" name="format" value="telmi" checked />
+            <span data-i18n="fmt_telmi"></span>
+          </label>
+          <label>
+            <input type="radio" name="format" value="lunii" />
+            <span data-i18n="fmt_lunii"></span>
+          </label>
+          <label>
+            <input type="radio" name="format" value="flam" />
+            <span data-i18n="fmt_flam"></span>
+          </label>
         </div>
 
         <div class="cover">
@@ -91,28 +88,31 @@
           </div>
         </div>
 
-        <div class="format-row">
-          <span class="muted" data-i18n="format_label"></span>
-          <label>
-            <input type="radio" name="format" value="telmi" checked />
-            <span data-i18n="fmt_telmi"></span>
-          </label>
-          <label>
-            <input type="radio" name="format" value="lunii" />
-            <span data-i18n="fmt_lunii"></span>
-          </label>
-          <label>
-            <input type="radio" name="format" value="flam" />
-            <span data-i18n="fmt_flam"></span>
-          </label>
+        <div class="cut">
+          <h2 data-i18n="cut_title"></h2>
+          <p class="muted" data-i18n="cut_hint"></p>
+          <!-- Shut until the pack has been read: which levels it can cut at comes from its own outline. -->
+          <div class="cut-row">
+            <label>
+              <input id="cut-chapter" type="radio" name="cut" value="chapter" checked disabled />
+              <span data-i18n="cut_chapter"></span>
+            </label>
+            <label>
+              <input id="cut-paragraph" type="radio" name="cut" value="paragraph" disabled />
+              <span data-i18n="cut_paragraph"></span>
+            </label>
+            <label>
+              <input id="cut-sentence" type="radio" name="cut" value="sentence" disabled />
+              <span data-i18n="cut_sentence"></span>
+            </label>
+          </div>
         </div>
 
         <div id="summary" class="summary" hidden></div>
 
         <div class="actions">
-          <button id="convert" type="button" disabled data-i18n="convert"></button>
+          <button id="save" type="button" disabled data-i18n="save"></button>
           <a id="download" class="button primary" hidden download data-i18n="download"></a>
-          <a id="download-lunii" class="button" hidden download data-i18n="download_lunii"></a>
         </div>
 
         <progress id="bar" max="1" value="0" hidden></progress>

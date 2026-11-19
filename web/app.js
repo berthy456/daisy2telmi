@@ -9,7 +9,7 @@ import { readZip } from "./zip.js";
 const drop = document.getElementById("drop");
 const picker = document.getElementById("picker");
 const folderPicker = document.getElementById("folder-picker");
-const convertButton = document.getElementById("convert");
+const saveButton = document.getElementById("save");
 const downloadLink = document.getElementById("download");
 const summary = document.getElementById("summary");
 const bar = document.getElementById("bar");
@@ -25,7 +25,6 @@ const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
 const cropRow = document.getElementById("crop-row");
 const cropInputs = [...document.querySelectorAll('input[name="crop"]')];
 const formatInputs = [...document.querySelectorAll('input[name="format"]')];
-const luniiLink = document.getElementById("download-lunii");
 
 const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffer());
 const STORED_LANGUAGE = "daisy2telmi.language";
@@ -165,13 +164,16 @@ function showSummary(story) {
   coverSearch.hidden = false;
 }
 
-async function convert() {
-  if (!source) return;
-  convertButton.disabled = true;
+function clearResult() {
   downloadLink.hidden = true;
   downloadLink.removeAttribute("href");
-  luniiLink.hidden = true;
-  luniiLink.removeAttribute("href");
+}
+
+/** One action: build the story for the chosen player and hand the zip over. */
+async function saveStory() {
+  if (!source) return;
+  saveButton.disabled = true;
+  clearResult();
   bar.hidden = false;
   bar.value = 0;
 
@@ -204,20 +206,22 @@ async function convert() {
     // same story, the Flam launcher imports the Telmi one.
     const studio = format === "lunii";
     const name = `${story.dirName}${studio ? "-lunii" : ""}.zip`;
-    const link = studio ? luniiLink : downloadLink;
     const bytes = studio ? await buildStudioZip(story) : story.zip;
 
     showSummary(story);
-    link.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
-    link.download = name;
-    link.hidden = false;
+    downloadLink.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+    downloadLink.download = name;
+    downloadLink.hidden = false;
     bar.value = 1;
     log(t("log_ready", { name }));
+    // The button asked for the file, so it arrives without a second click. The
+    // link stays on screen in case the browser wants one.
+    downloadLink.click();
   } catch (error) {
     log(t("log_error", { message: error.message ?? error }));
     bar.hidden = true;
   } finally {
-    convertButton.disabled = false;
+    saveButton.disabled = false;
   }
 }
 
@@ -253,11 +257,8 @@ async function openCutLevels() {
 
 function setSource(name, loader) {
   source = { name, loader, entries: null };
-  convertButton.disabled = false;
-  downloadLink.hidden = true;
-  downloadLink.removeAttribute("href");
-  luniiLink.hidden = true;
-  luniiLink.removeAttribute("href");
+  saveButton.disabled = false;
+  clearResult();
   logView.textContent = "";
   coverSearch.href = searchUrl(name.replace(/\.[^.]+$/, ""));
   coverSearch.hidden = false;
@@ -322,9 +323,9 @@ coverUse.addEventListener("click", async () => {
 });
 
 coverClear.addEventListener("click", clearCover);
-convertButton.addEventListener("click", convert);
+saveButton.addEventListener("click", saveStory);
 
 startLanguage();
+startFormat();
 startCut();
 startCrop();
-startFormat();

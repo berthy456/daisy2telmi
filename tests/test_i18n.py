@@ -31,7 +31,7 @@ def test_every_window_language_is_translated(code: str) -> None:
 def test_an_unknown_language_falls_back_to_english() -> None:
     assert language("xx").code == "en"
     assert language(None).code == "en"
-    assert text("xx", "convert") == UI["en"]["convert"]
+    assert text("xx", "save") == UI["en"]["save"]
 
 
 def test_speech_tags_are_set_for_every_language() -> None:
