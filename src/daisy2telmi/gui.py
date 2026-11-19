@@ -19,7 +19,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from . import audio, chapters, images, settings, tts
-from .cli import convert
+from .cli import FORMATS, convert
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES, text
@@ -57,6 +57,7 @@ class App:
         self.out_var = tk.StringVar()
         self.cover_var = tk.StringVar()
         self.crop_var = tk.StringVar(value=self.options["cover_crop"])
+        self.format_var = tk.StringVar(value=self.options["format"])
         self._previews: tuple[str, dict[str, bytes]] | None = None
         self._crop_images: dict[str, tk.PhotoImage] = {}
         self.force_var = tk.BooleanVar(value=False)
@@ -86,7 +87,7 @@ class App:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
-        grid.rowconfigure(7, weight=1)
+        grid.rowconfigure(8, weight=1)
 
         self._label(grid, "pack_label").grid(row=0, column=0, sticky="w")
         ttk.Entry(grid, textvariable=self.pack_var).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
@@ -121,8 +122,22 @@ class App:
             self.crop_boxes[mode] = box
         self.cover_var.trace_add("write", lambda *_: self._show_crop())
 
+        format_row = ttk.Frame(grid)
+        format_row.grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self._label(format_row, "format_label").pack(side="left", padx=(0, 10))
+        for player in FORMATS:
+            box = ttk.Radiobutton(
+                format_row,
+                text=self.t(f"fmt_{player}"),
+                variable=self.format_var,
+                value=player,
+                command=self._pick_format,
+            )
+            self._labels[f"fmt_{player}"] = box
+            box.pack(side="left", padx=(0, 12))
+
         controls = ttk.Frame(grid)
-        controls.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 8))
+        controls.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 8))
         self.convert_button = self._button(controls, "convert", self._start)
         self.convert_button.pack(side="left")
         self._button(controls, "options", self._open_options).pack(side="left", padx=12)
@@ -136,9 +151,9 @@ class App:
         self.progress.pack(side="right")
 
         self.log_view = tk.Text(grid, height=18, width=72, state="disabled", wrap="word")
-        self.log_view.grid(row=7, column=0, columnspan=3, sticky="nsew")
+        self.log_view.grid(row=8, column=0, columnspan=3, sticky="nsew")
         scroll = ttk.Scrollbar(grid, command=self.log_view.yview)
-        scroll.grid(row=7, column=3, sticky="ns")
+        scroll.grid(row=8, column=3, sticky="ns")
         self.log_view.configure(yscrollcommand=scroll.set)
 
         hint = self.t("drop_hint") if DND_FILES else self.t("drop_unavailable")
@@ -201,6 +216,10 @@ class App:
 
     def _pick_crop(self) -> None:
         self.options["cover_crop"] = self.crop_var.get()
+        settings.save(self.options)
+
+    def _pick_format(self) -> None:
+        self.options["format"] = self.format_var.get()
         settings.save(self.options)
 
     def _show_crop(self) -> None:
@@ -274,7 +293,7 @@ class App:
                 cover,
                 ",".join(str(number) for number in dropped) if dropped else None,
                 self.cut,
-                self.options["lunii"],
+                self.format_var.get(),
                 self.crop_var.get(),
             ),
             daemon=True,
@@ -289,10 +308,10 @@ class App:
         cover: Path | None,
         drop: str | None,
         cut: str,
-        lunii: bool,
+        fmt: str,
         crop: str,
     ) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut, lunii, crop)))
+        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut, fmt, crop)))
 
     def _drain(self) -> None:
         while True:
@@ -501,7 +520,6 @@ class Options:
         self.engine_box = self._combo(self.engine_keys, app.options["tts"])
         self.voice_box = self._combo([None], app.options["voice"])
         self.autoplay_var = tk.BooleanVar(value=bool(app.options["autoplay"]))
-        self.lunii_var = tk.BooleanVar(value=bool(app.options["lunii"]))
         self.python_box = ttk.Entry(self.top, width=28)
         self.python_box.insert(0, app.options["python"] or "")
 
@@ -514,13 +532,12 @@ class Options:
         self._row(grid, "opt_language", 0, self.language_box)
         self._row(grid, "opt_announce", 1, self.announce_box)
         self._row(grid, "opt_autoplay", 2, ttk.Checkbutton(grid, variable=self.autoplay_var))
-        self._row(grid, "opt_lunii", 3, ttk.Checkbutton(grid, variable=self.lunii_var))
-        self._row(grid, "opt_engine", 4, self.engine_box)
-        self._row(grid, "opt_voice", 5, self.voice_box)
-        self._row(grid, "opt_python", 6, self.python_box)
-        self._row(grid, "opt_clip", 7, clip_row)
+        self._row(grid, "opt_engine", 3, self.engine_box)
+        self._row(grid, "opt_voice", 4, self.voice_box)
+        self._row(grid, "opt_python", 5, self.python_box)
+        self._row(grid, "opt_clip", 6, clip_row)
         ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=8, column=0, columnspan=2, sticky="e", pady=(12, 0)
+            row=7, column=0, columnspan=2, sticky="e", pady=(12, 0)
         )
 
         self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
@@ -578,7 +595,6 @@ class Options:
                 "language": self._chosen(self.language_box, self.language_keys),
                 "announce": self._chosen(self.announce_box, self.announce_keys),
                 "autoplay": self.autoplay_var.get(),
-                "lunii": self.lunii_var.get(),
                 "tts": self._chosen(self.engine_box, self.engine_keys),
                 "voice": self._chosen(self.voice_box, self.voice_keys),
                 "python": self.python_box.get().strip() or None,

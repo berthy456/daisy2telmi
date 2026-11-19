@@ -256,12 +256,17 @@ def build_story(
     cover: Path | None = None,
     cut: str = "chapter",
     crop: str = "center",
+    lunii_dir: Path | None = None,
 ) -> StoryReport:
     """Render every chapter to `audios/` and write the story's JSON files and images.
 
     `cover` is the user's picture: it becomes the title image, the cover and the
     background of every card, which carries the chapter number and the total.
     `crop` says which band of it survives the three different aspect ratios.
+
+    `lunii_dir` gets the same pictures drawn again for a greyscale Lunii screen:
+    a plain player has four grey levels and no colour panel, so its set is drawn
+    light-on-dark the other way round and flattened to those four levels.
     """
     if not book.chapters:
         raise StoryError("the pack contains no chapter with audio")
@@ -277,9 +282,6 @@ def build_story(
     for name, index, chapter in zip(chapter_names, range(count), book.chapters):
         log.info("rendering %s (%d audio clip group(s)) <- %s", name, len(chapter.segments), chapter.title)
         modes.add(audio.render(chapter.segments, audios / f"{name}.mp3"))
-        if cover is None:
-            label = images.card_label(announce.language if announce else "en", index + 1, count, cut == "chapter")
-            (scene / f"m{index}.png").write_bytes(images.card_png(label, chapter.text))
 
     cards = [None] * count
     spoken = 0
@@ -304,14 +306,26 @@ def build_story(
         audio.render_silence(title_path, 1.0)
         title_source = "generated silence"
 
-    if cover is not None:
-        code = announce.language if announce is not None else "en"
-        labels = [images.card_label(code, k + 1, count, cut == "chapter") for k in range(count)]
-        log.info("drawing %d card(s) from the cover %s", count, cover.name)
-        images.write_cover(cover, out_dir, labels, [chapter.text for chapter in book.chapters], crop)
-    else:
-        (out_dir / images.TITLE_IMAGE).write_bytes(images.placeholder_png())
-        (out_dir / images.COVER_IMAGE).write_bytes(images.placeholder_png(*images.COVER_SIZE))
+    code = announce.language if announce is not None else "en"
+    labels = [images.card_label(code, k + 1, count, cut == "chapter") for k in range(count)]
+    texts = [chapter.text for chapter in book.chapters]
+
+    def draw(target: Path, style: str) -> None:
+        """The title image, the cover and every card, in the palette of one screen."""
+        if cover is not None:
+            images.write_cover(cover, target, labels, texts, crop, style)
+            return
+        (target / "images").mkdir(parents=True, exist_ok=True)
+        for index, text in enumerate(texts):
+            (target / "images" / f"m{index}.png").write_bytes(images.card_png(labels[index], text, style=style))
+        (target / images.TITLE_IMAGE).write_bytes(images.placeholder_png(style=style))
+        (target / images.COVER_IMAGE).write_bytes(images.placeholder_png(*images.COVER_SIZE, style=style))
+
+    log.info("drawing %d card(s)%s", count, "" if cover is None else f" from the cover {cover.name}")
+    draw(out_dir, "colour")
+    if lunii_dir is not None:
+        log.info("drawing the same %d card(s) in four greys for the Lunii", count)
+        draw(lunii_dir, "bw")
 
     metadata = build_metadata(book)
     (out_dir / "metadata.json").write_text(

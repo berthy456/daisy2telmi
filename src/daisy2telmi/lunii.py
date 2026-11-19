@@ -58,12 +58,19 @@ def _media(story_dir: Path, subdir: str, name: str | None, exts: tuple[str, ...]
 
 
 def build_story_json(
-    metadata: Mapping, nodes: Mapping, story_dir: Path, night_mode: bool = False
+    metadata: Mapping,
+    nodes: Mapping,
+    story_dir: Path,
+    night_mode: bool = False,
+    image_dir: Path | None = None,
 ) -> tuple[dict, dict[str, Path]]:
     """The STUdio `story.json` and the assets to copy beside it.
 
     `metadata` and `nodes` are the Telmi pack's own two files, which is what makes
     the two archives describe the same story.
+
+    `image_dir` reads the pictures from a second folder instead: a greyscale
+    Lunii set cannot be derived from the colour one, so it is drawn beside it.
     """
     story_dir = Path(story_dir)
     try:
@@ -79,6 +86,7 @@ def build_story_json(
     # Deterministic, so converting the same story twice writes the same archive.
     stage_uuids = {key: str(uuid5(story_uuid, f"stage:{key}")) for key in stages}
 
+    image_dir = Path(image_dir) if image_dir is not None else story_dir
     assets: dict[str, Path] = {}
     taken: set[str] = set()
     names: dict[str, str] = {}
@@ -89,8 +97,8 @@ def build_story_json(
         key = str(path)
         if key not in names:
             extension = ".png" if kind == "image" else path.suffix.lower()
-            relative = str(path.relative_to(story_dir))
-            names[key] = _asset_name(relative, extension, taken)
+            base = image_dir if path.is_relative_to(image_dir) else story_dir
+            names[key] = _asset_name(str(path.relative_to(base)), extension, taken)
             assets[names[key]] = path
         return names[key]
 
@@ -110,7 +118,7 @@ def build_story_json(
             "type": "cover",
             "name": metadata.get("title") or story_dir.name,
             "position": {"x": 0, "y": 0},
-            "image": register(_media(story_dir, ".", "title.png", IMAGE_EXTS), "image"),
+            "image": register(_media(image_dir, ".", "title.png", IMAGE_EXTS), "image"),
             "audio": register(cover_audio, "audio"),
             "okTransition": transition(nodes.get("startAction")),
             "homeTransition": None,
@@ -127,7 +135,7 @@ def build_story_json(
                 "type": "stage",
                 "name": key,
                 "position": {"x": 0, "y": 0},
-                "image": register(_media(story_dir, "images", stage.get("image"), IMAGE_EXTS), "image"),
+                "image": register(_media(image_dir, "images", stage.get("image"), IMAGE_EXTS), "image"),
                 "audio": register(_media(story_dir, "audios", stage.get("audio"), AUDIO_EXTS), "audio"),
                 "okTransition": transition(stage.get("ok")),
                 # A lit home with nothing behind it is the device's own way out of a
@@ -174,8 +182,17 @@ def build_story_json(
     return story_json, assets
 
 
-def write_studio_zip(story_dir: Path, zip_path: Path | None = None, night_mode: bool = False) -> Path:
-    """Write the STUdio archive of the Telmi story folder at `story_dir`."""
+def write_studio_zip(
+    story_dir: Path,
+    zip_path: Path | None = None,
+    night_mode: bool = False,
+    image_dir: Path | None = None,
+) -> Path:
+    """Write the STUdio archive of the Telmi story folder at `story_dir`.
+
+    `image_dir` takes the pictures from a folder drawn for the Lunii's screen
+    instead of the colour ones in the story folder.
+    """
     story_dir = Path(story_dir)
     try:
         metadata = json.loads((story_dir / "metadata.json").read_text(encoding="utf-8"))
@@ -183,11 +200,11 @@ def write_studio_zip(story_dir: Path, zip_path: Path | None = None, night_mode: 
     except (OSError, ValueError) as exc:
         raise LuniiError(f"{story_dir} is not a converted story: {exc}") from exc
 
-    story_json, assets = build_story_json(metadata, nodes, story_dir, night_mode)
+    story_json, assets = build_story_json(metadata, nodes, story_dir, night_mode, image_dir)
     zip_path = Path(zip_path) if zip_path else story_dir.parent / f"{story_dir.name}-lunii.zip"
     zip_path.parent.mkdir(parents=True, exist_ok=True)
 
-    thumbnail = _media(story_dir, ".", metadata.get("image") or "cover.png", IMAGE_EXTS)
+    thumbnail = _media(image_dir or story_dir, ".", metadata.get("image") or "cover.png", IMAGE_EXTS)
     # Stored, not deflated: the media is already MP3 and PNG, and Lunii.QT reads the
     # archive straight off the card.
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as archive:

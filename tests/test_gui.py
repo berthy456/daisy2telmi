@@ -260,6 +260,24 @@ def test_the_chosen_crop_reaches_the_conversion(app: gui.App, monkeypatch, tmp_p
     assert seen[0][8] == "top"
 
 
+def test_the_chosen_format_reaches_the_conversion(app: gui.App, monkeypatch, tmp_path) -> None:
+    seen: list = []
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+    monkeypatch.setattr(gui.settings, "save", lambda options: None)
+
+    app.format_var.set("lunii")
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app._start()
+    app._drain()
+    assert seen[0][7] == "lunii"
+
+
+def test_the_window_offers_every_player(app: gui.App) -> None:
+    assert [app.t(f"fmt_{player}") for player in gui.FORMATS] == ["Telmi", "Lunii (4 greys)", "Flam"]
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_a_cover_draws_its_three_bands_on_the_crop_buttons(app: gui.App, tmp_path) -> None:
     cover = tmp_path / "cover.png"

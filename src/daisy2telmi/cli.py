@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 from . import __version__, audio, chapters, images, settings, tts
@@ -23,6 +24,11 @@ from .telmi_builder import (
 )
 
 log = logging.getLogger("daisy2telmi")
+
+# The three players, and the archive each one imports. Telmi and the Flam have a
+# colour screen; a plain Lunii shows four grey levels, so its cards are redrawn.
+FORMATS = ("telmi", "lunii", "flam")
+PLAYER = {"telmi": "Telmi Sync", "lunii": "the Lunii", "flam": "the Flam launcher"}
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -101,9 +107,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "for example 'my-tts {text} {out}' with any Chatterbox-style model behind it",
     )
     parser.add_argument(
-        "--lunii",
-        action="store_true",
-        help="also write a .zip the Lunii's own tools import, beside the Telmi one",
+        "--format",
+        choices=FORMATS,
+        help="which player the story is written for: Telmi (default), a Lunii, whose "
+        "cards are redrawn in four grey levels, or a Flam",
     )
     parser.add_argument("--version", action="version", version=f"daisy2telmi {__version__}")
     args = parser.parse_args(argv)
@@ -137,9 +144,9 @@ def cover_crop(args: argparse.Namespace) -> str:
     return args.cover_crop or settings.load()["cover_crop"]
 
 
-def also_lunii(args: argparse.Namespace) -> bool:
-    """Saved Lunii option, overridden by --lunii."""
-    return bool(args.lunii or settings.load()["lunii"])
+def output_format(args: argparse.Namespace) -> str:
+    """Saved player choice, overridden by --format."""
+    return args.format or settings.load()["format"]
 
 
 def inspect(
@@ -202,7 +209,7 @@ def convert(
     cover: Path | None = None,
     drop: str | None = None,
     cut: str = "chapter",
-    lunii: bool = False,
+    fmt: str = "telmi",
     crop: str = "center",
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
@@ -234,9 +241,17 @@ def convert(
                 log.error("%s is not empty; pass --force to overwrite", target)
                 return 2
             target.mkdir(parents=True, exist_ok=True)
-            report = build_story(book, target, announce, cover, cut, crop)
-            zip_path = write_story_zip(target, target.parent)
-            studio_path = write_studio_zip(target) if lunii else None
+            if fmt == "lunii":
+                # The four greys cannot be recovered from the colour cards: their
+                # ground is dark and the Lunii wants the other way round. Draw a
+                # second set in a scratch folder and build the archive from those.
+                with tempfile.TemporaryDirectory(prefix="daisy2telmi-lunii-") as scratch:
+                    grey = Path(scratch)
+                    report = build_story(book, target, announce, cover, cut, crop, grey)
+                    archive = write_studio_zip(target, image_dir=grey)
+            else:
+                report = build_story(book, target, announce, cover, cut, crop)
+                archive = write_story_zip(target, target.parent)
     except ChapterError as exc:
         log.error("%s", exc)
         return 2
@@ -248,9 +263,7 @@ def convert(
         return 1
 
     log.info("wrote %d scene(s) to %s", len(report.stages), report.out_dir)
-    log.info("zipped for Telmi Sync import: %s", zip_path)
-    if studio_path is not None:
-        log.info("zipped for Lunii import: %s", studio_path)
+    log.info("zipped for %s import: %s", PLAYER[fmt], archive)
     log.info(
         "audio: %s",
         {
@@ -286,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         args.cover,
         args.drop,
         cut_level(args),
-        also_lunii(args),
+        output_format(args),
         cover_crop(args),
     )
 

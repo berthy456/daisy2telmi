@@ -23,13 +23,13 @@ const coverSearch = document.getElementById("cover-search");
 const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
 const cropRow = document.getElementById("crop-row");
 const cropInputs = [...document.querySelectorAll('input[name="crop"]')];
-const luniiBox = document.getElementById("lunii");
+const formatInputs = [...document.querySelectorAll('input[name="format"]')];
 const luniiLink = document.getElementById("download-lunii");
 
 const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffer());
 const STORED_LANGUAGE = "daisy2telmi.language";
 const STORED_CUT = "daisy2telmi.cut";
-const STORED_LUNII = "daisy2telmi.lunii";
+const STORED_FORMAT = "daisy2telmi.format";
 const STORED_CROP = "daisy2telmi.crop";
 // The summary lists the parts it starts; a book cut to the sentence level has hundreds.
 const LISTED_PARTS = 30;
@@ -39,6 +39,7 @@ let cover = null;
 let lang = "en";
 let cut = "chapter";
 let crop = "center";
+let format = "telmi";
 let cropUrls = [];
 
 const t = (key, values) => text(lang, key, values);
@@ -91,9 +92,16 @@ function startCut() {
   }
 }
 
-function startLunii() {
-  luniiBox.checked = saved(STORED_LUNII) === "1";
-  luniiBox.addEventListener("change", () => remember(STORED_LUNII, luniiBox.checked ? "1" : "0"));
+function startFormat() {
+  const stored = saved(STORED_FORMAT);
+  format = formatInputs.some((input) => input.value === stored) ? stored : "telmi";
+  for (const input of formatInputs) {
+    input.checked = input.value === format;
+    input.addEventListener("change", () => {
+      format = input.value;
+      remember(STORED_FORMAT, format);
+    });
+  }
 }
 
 function startCrop() {
@@ -180,6 +188,7 @@ async function convert() {
         cover,
         crop,
         cut,
+        style: format === "lunii" ? "bw" : "colour",
         t: (key) => t(key),
         cardLabel: (number, total, worded) => t(worded ? "card_label" : "card_number", { n: number, total }),
         cardAudio: async (number) => {
@@ -190,21 +199,19 @@ async function convert() {
       },
     );
 
-    showSummary(story);
-    const url = URL.createObjectURL(new Blob([story.zip], { type: "application/zip" }));
-    downloadLink.href = url;
-    downloadLink.download = `${story.dirName}.zip`;
-    downloadLink.hidden = false;
-    bar.value = 1;
-    log(t("log_ready", { name: `${story.dirName}.zip` }));
+    // One archive, for the player chosen: a Lunii takes the STUdio form of the
+    // same story, the Flam launcher imports the Telmi one.
+    const studio = format === "lunii";
+    const name = `${story.dirName}${studio ? "-lunii" : ""}.zip`;
+    const link = studio ? luniiLink : downloadLink;
+    const bytes = studio ? await buildStudioZip(story) : story.zip;
 
-    if (luniiBox.checked) {
-      const studioName = `${story.dirName}-lunii.zip`;
-      luniiLink.href = URL.createObjectURL(new Blob([await buildStudioZip(story)], { type: "application/zip" }));
-      luniiLink.download = studioName;
-      luniiLink.hidden = false;
-      log(t("log_lunii", { name: studioName }));
-    }
+    showSummary(story);
+    link.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+    link.download = name;
+    link.hidden = false;
+    bar.value = 1;
+    log(t("log_ready", { name }));
   } catch (error) {
     log(t("log_error", { message: error.message ?? error }));
     bar.hidden = true;
@@ -288,4 +295,4 @@ convertButton.addEventListener("click", convert);
 startLanguage();
 startCut();
 startCrop();
-startLunii();
+startFormat();

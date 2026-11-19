@@ -21,7 +21,7 @@ DEFAULTS: dict = {
     "language": "en",
     "announce": "prompt",
     "autoplay": False,
-    "lunii": False,
+    "format": "telmi",
     "tts": "auto",
     "voice": None,
     "command": None,

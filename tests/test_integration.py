@@ -303,15 +303,49 @@ def test_a_pack_without_front_matter_gets_a_silent_title(tmp_path: Path) -> None
     assert float(probe(story / "audios" / "s0.mp3")["duration"]) == pytest.approx(2.0, abs=0.2)
 
 
+def _greys(png: Path) -> set[int]:
+    """The grey levels one picture holds."""
+    raw = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(png),
+         "-vf", "format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    return set(raw)
+
+
 @requires_pack
-def test_the_lunii_flag_writes_an_archive_lunii_imports(tmp_path, monkeypatch) -> None:
+def test_the_lunii_format_writes_an_archive_lunii_imports(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     out = tmp_path / "out"
-    assert main([str(PACK), str(out), "--lunii"]) == 0
+    assert main([str(PACK), str(out), "--format", "lunii"]) == 0
     story = next(entry for entry in out.iterdir() if entry.is_dir())
     archive = out / f"{story.name}-lunii.zip"
     assert archive.is_file(), f"no Lunii archive beside {story}"
     assert validate_studio_zip(archive) == []
+
+
+@requires_pack
+def test_the_lunii_format_draws_every_picture_in_four_greys(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--format", "lunii"]) == 0
+    story = next(entry for entry in out.iterdir() if entry.is_dir())
+
+    with zipfile.ZipFile(out / f"{story.name}-lunii.zip") as packed:
+        pictures = [name for name in packed.namelist() if name.endswith(".png")]
+        assert pictures, "a Lunii story carries its cards"
+        for name in pictures:
+            picture = tmp_path / "assets" / name
+            picture.parent.mkdir(parents=True, exist_ok=True)
+            picture.write_bytes(packed.read(name))
+            levels = _greys(picture)
+            assert len(levels) <= 4, f"{name} holds {sorted(levels)}"
+            assert max(levels) == 255, f"{name} is not drawn light on dark"
+
+    assert (story / "title.png").read_bytes() != (tmp_path / "assets" / "thumbnail.png").read_bytes(), (
+        "the story folder keeps its colour pictures"
+    )
 
 
 @requires_pack

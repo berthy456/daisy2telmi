@@ -3,8 +3,11 @@
 
 import { crc32 } from "./zip.js";
 
-const BACKGROUND = [26, 30, 42];
-const BAND = [78, 92, 122];
+// The Lunii's grey band is one of the four levels the screen shows, on white.
+const PALETTE = {
+  colour: { background: [26, 30, 42], band: [78, 92, 122] },
+  bw: { background: [255, 255, 255], band: [192, 192, 192] },
+};
 
 function fill(rgb, count) {
   const out = new Uint8Array(rgb.length * count);
@@ -54,11 +57,12 @@ async function png(width, height, rows) {
   ]);
 }
 
-export async function placeholderPng(width = 640, height = 480) {
+export async function placeholderPng(width = 640, height = 480, style = "colour") {
   const bandTop = Math.floor(height / 2) - 48;
   const bandBottom = Math.floor(height / 2) + 48;
+  const { background, band } = PALETTE[style];
   const rows = [];
-  for (let y = 0; y < height; y++) rows.push(fill(y >= bandTop && y < bandBottom ? BAND : BACKGROUND, width));
+  for (let y = 0; y < height; y++) rows.push(fill(y >= bandTop && y < bandBottom ? band : background, width));
   return png(width, height, rows);
 }
 

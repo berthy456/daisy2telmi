@@ -90,10 +90,21 @@
           </div>
         </div>
 
-        <label class="check">
-          <input id="lunii" type="checkbox" />
-          <span data-i18n="lunii_box"></span>
-        </label>
+        <div class="format-row">
+          <span class="muted" data-i18n="format_label"></span>
+          <label>
+            <input type="radio" name="format" value="telmi" checked />
+            <span data-i18n="fmt_telmi"></span>
+          </label>
+          <label>
+            <input type="radio" name="format" value="lunii" />
+            <span data-i18n="fmt_lunii"></span>
+          </label>
+          <label>
+            <input type="radio" name="format" value="flam" />
+            <span data-i18n="fmt_flam"></span>
+          </label>
+        </div>
 
         <div id="summary" class="summary" hidden></div>
 

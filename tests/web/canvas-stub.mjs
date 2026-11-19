@@ -5,6 +5,9 @@
 // Every drawImage the page asks for, so a test can check where a crop lands.
 export const DRAWS = [];
 
+// Every picture the page flattens: its size and the colour values it ended up with.
+export const FLATTENS = [];
+
 export class StubCanvas {
   constructor(width, height) {
     this.width = width;
@@ -20,6 +23,19 @@ export class StubCanvas {
       fillText: (line, x, y) => card.text.push([line, x, y]),
       strokeText: () => {},
       measureText: (line) => ({ width: [...line].length * 10 }),
+      // A brightness ramp across each row, so a test can see which level every
+      // shade lands on once the page has flattened the picture.
+      getImageData: (left, top, width, height) => ({
+        width,
+        height,
+        data: new Uint8ClampedArray(
+          Array.from({ length: width * height * 4 }, (_, at) =>
+            at % 4 === 3 ? 255 : ((at / 4) % width) * (256 / width),
+          ),
+        ),
+      }),
+      putImageData: (image) =>
+        FLATTENS.push([card.width, card.height, [...new Set(image.data.filter((_v, at) => at % 4 !== 3))]]),
     };
   }
 

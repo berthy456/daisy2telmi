@@ -1,7 +1,7 @@
 [project]
 name = "daisy2telmi"
-version = "2.0.0"
-description = "Convert a DAISY 2.02 audio book pack into a Telmi story folder"
+version = "2.5.0"
+description = "Convert a DAISY 2.02 audio book pack into a Telmi, Lunii or Flam story"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]

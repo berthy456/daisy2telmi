@@ -11,7 +11,36 @@ export const CARD_MARGIN = 24;
 export const CARD_LINES = 3;
 export const CARD_WORDS = 20;
 
-const BACKGROUND = "#1a1e2a";
+// A Lunii that is not a Flam has no colour panel: four grey levels, and the light
+// end of them, so its cards are drawn the other way round — white ground, black ink.
+export const STYLES = ["colour", "bw"];
+const PALETTE = {
+  colour: { background: "#1a1e2a", ink: "#fff", border: "#000" },
+  bw: { background: "#fff", ink: "#000", border: "#fff" },
+};
+const GREY_LEVELS = [0, 96, 192, 255];
+const GREY_CUTS = [40, 110, 185];
+
+/**
+ * One of the four levels, from a 0-255 luminance. The contrast and the levels
+ * match the desktop build's ffmpeg chain, so both draw the same card.
+ */
+export function greyLevel(luminance) {
+  const contrast = (luminance - 128) * 1.6 + 128;
+  return GREY_LEVELS[GREY_CUTS.filter((cut) => contrast >= cut).length];
+}
+
+/** Flatten a finished picture to the four levels a plain Lunii shows. */
+function toGreys(ctx, width, height) {
+  const image = ctx.getImageData(0, 0, width, height);
+  for (let at = 0; at < image.data.length; at += 4) {
+    // The weights are the ones the device's own converter uses, so the card
+    // that reaches its screen is the one drawn here.
+    const grey = greyLevel(0.299 * image.data[at] + 0.587 * image.data[at + 1] + 0.114 * image.data[at + 2]);
+    image.data[at] = image.data[at + 1] = image.data[at + 2] = grey;
+  }
+  ctx.putImageData(image, 0, 0);
+}
 
 /** Where the user goes to find a cover; Google offers no keyless image API. */
 export function searchUrl(query) {
@@ -145,10 +174,18 @@ export function cardWords(ctx, text, width) {
  * A book cut to the sentence level has hundreds of cards, so a card keeps a small
  * thumbnail rather than the whole cover: that is what keeps the zip importable.
  */
-export async function cardPng(label, text, cover = null, crop = "center", width = IMAGE_SIZE[0], height = IMAGE_SIZE[1]) {
+export async function cardPng(
+  label,
+  text,
+  cover = null,
+  crop = "center",
+  width = IMAGE_SIZE[0],
+  height = IMAGE_SIZE[1],
+  style = "colour",
+) {
   const canvas = surface(width, height);
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = BACKGROUND;
+  ctx.fillStyle = PALETTE[style].background;
   ctx.fillRect(0, 0, width, height);
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
@@ -158,8 +195,8 @@ export async function cardPng(label, text, cover = null, crop = "center", width 
   ctx.textAlign = "right";
   ctx.font = `bold ${Math.round(height / 11)}px system-ui, sans-serif`;
   ctx.lineWidth = 6;
-  ctx.strokeStyle = "#000";
-  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = PALETTE[style].border;
+  ctx.fillStyle = PALETTE[style].ink;
   ctx.strokeText(label, width - CARD_MARGIN, CARD_MARGIN);
   ctx.fillText(label, width - CARD_MARGIN, CARD_MARGIN);
 
@@ -173,12 +210,17 @@ export async function cardPng(label, text, cover = null, crop = "center", width 
     ctx.strokeText(line, CARD_MARGIN, top);
     ctx.fillText(line, CARD_MARGIN, top);
   }
+  // Flattened last, once the cover and the letters are all down, so a card
+  // cannot pick up a fifth grey where two layers meet.
+  if (style === "bw") toGreys(ctx, width, height);
   return toPng(canvas);
 }
 
 /** The cover, cropped to width x height. */
-export async function coverPng(cover, width, height, crop = "center") {
+export async function coverPng(cover, width, height, crop = "center", style = "colour") {
   const canvas = surface(width, height);
-  drawCover(canvas.getContext("2d"), cover, 0, 0, width, height, crop);
+  const ctx = canvas.getContext("2d");
+  drawCover(ctx, cover, 0, 0, width, height, crop);
+  if (style === "bw") toGreys(ctx, width, height);
   return toPng(canvas);
 }

@@ -28,6 +28,18 @@ BACKGROUND = (26, 30, 42)
 BAND = (78, 92, 122)
 FOREGROUND = (214, 222, 238)
 
+# A Lunii that is not a Flam has no colour panel: four greys, and the light end of
+# them, so its cards are drawn the other way round — white ground, black ink.
+LUNII_STYLES = ("colour", "bw")
+
+_GREY_LEVELS = (0, 96, 192, 255)
+_GREY_CUTS = (40, 110, 185)
+
+_PALETTE = {
+    "colour": {"background": BACKGROUND, "band": BAND, "ink": (255, 255, 255), "border": (0, 0, 0)},
+    "bw": {"background": (255, 255, 255), "band": _GREY_LEVELS[2], "ink": (0, 0, 0), "border": (255, 255, 255)},
+}
+
 # 5 columns, 7 rows, "1" is ink. Uppercase only: a card label is a title, and it
 # keeps the table to what eight Latin-script languages need.
 _LETTERS = {
@@ -103,12 +115,13 @@ def _png(width: int, height: int, rows: list[bytes], colour_type: int = 2) -> by
     )
 
 
-def placeholder_png(width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]) -> bytes:
+def placeholder_png(width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1], style: str = "colour") -> bytes:
     """A flat placeholder, written by hand so the converter needs no image library."""
+    palette = _PALETTE[style]
     band_top, band_bottom = height // 2 - 48, height // 2 + 48
     rows = []
     for y in range(height):
-        rgb = BAND if band_top <= y < band_bottom else BACKGROUND
+        rgb = palette["band"] if band_top <= y < band_bottom else palette["background"]
         rows.append(bytes(rgb) * width)
     return _png(width, height, rows)
 
@@ -180,17 +193,19 @@ def _card_grid(label: str, lines: list[str], width: int, height: int) -> list[by
     return ink
 
 
-def _grid_png(ink: list[bytearray], base: tuple[int, int, int] | None) -> bytes:
+def _grid_png(ink: list[bytearray], base: tuple[int, int, int] | None, style: str = "colour") -> bytes:
     """Colour a card's lettering grid: over `base` for a whole card, transparent for an overlay."""
+    palette = _PALETTE[style]
+    letter, border = bytes(palette["ink"]), bytes(palette["border"])
     width, height = len(ink[0]), len(ink)
     rows = []
     for line in ink:
         row = bytearray()
         for cell in line:
             if cell == 2:
-                row += b"\xff\xff\xff" + (b"" if base is not None else b"\xff")
+                row += letter + (b"" if base is not None else b"\xff")
             elif cell == 1:
-                row += b"\x00\x00\x00" + (b"" if base is not None else b"\xff")
+                row += border + (b"" if base is not None else b"\xff")
             elif base is not None:
                 row += bytes(base)
             else:
@@ -200,17 +215,25 @@ def _grid_png(ink: list[bytearray], base: tuple[int, int, int] | None) -> bytes:
 
 
 def card_png(
-    label: str, text: str = "", width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]
+    label: str,
+    text: str = "",
+    width: int = IMAGE_SIZE[0],
+    height: int = IMAGE_SIZE[1],
+    style: str = "colour",
 ) -> bytes:
     """A card on its own: the part number, and the words it opens with when we can draw them."""
-    return _grid_png(_card_grid(label, card_words(text), width, height), BACKGROUND)
+    return _grid_png(_card_grid(label, card_words(text), width, height), _PALETTE[style]["background"], style)
 
 
 def card_layer_png(
-    label: str, text: str = "", width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]
+    label: str,
+    text: str = "",
+    width: int = IMAGE_SIZE[0],
+    height: int = IMAGE_SIZE[1],
+    style: str = "colour",
 ) -> bytes:
     """The same lettering on a transparent canvas, to lay over a cropped cover."""
-    return _grid_png(_card_grid(label, card_words(text), width, height), None)
+    return _grid_png(_card_grid(label, card_words(text), width, height), None, style)
 
 
 def card_label(language_code: str, number: int, total: int, word: bool = True) -> str:
@@ -227,9 +250,9 @@ def card_label(language_code: str, number: int, total: int, word: bool = True) -
     return f"{number}/{total}"
 
 
-def flat_png(width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]) -> bytes:
+def flat_png(width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1], style: str = "colour") -> bytes:
     """A plain card background, before the cover thumbnail and the lettering go on it."""
-    return _png(width, height, [bytes(BACKGROUND) * width] * height)
+    return _png(width, height, [bytes(_PALETTE[style]["background"]) * width] * height)
 
 
 def _run(args: list[str], description: str) -> None:
@@ -246,6 +269,18 @@ CROP_MODES = ("top", "center", "bottom")
 _CROP_OFFSET = {"top": ":0:0", "center": "", "bottom": ":0:ih-oh"}
 
 
+def _grey_chain() -> str:
+    """Flatten a picture to the four Lunii greys.
+
+    The cuts sit towards the light end, so only a genuinely dark pixel turns
+    black, and the blur before them keeps large areas flat instead of dithered.
+    """
+    steps = str(_GREY_LEVELS[-1])
+    for cut, level in reversed(list(zip(_GREY_CUTS, _GREY_LEVELS))):
+        steps = f"if(lt(val,{cut}),{level},{steps})"
+    return f"format=gray,eq=contrast=1.6,gblur=sigma=1,lutyuv=y='{steps}',format=rgb24"
+
+
 def _crop(ffmpeg: str, source: Path, size: tuple[int, int], dest: Path, mode: str = "center") -> None:
     width, height = size
     chain = (
@@ -256,6 +291,16 @@ def _crop(ffmpeg: str, source: Path, size: tuple[int, int], dest: Path, mode: st
         [ffmpeg, "-y", "-i", str(source), "-vf", chain, "-frames:v", "1", str(dest)],
         f"could not crop {source.name} to {width}x{height}",
     )
+
+
+def _flatten(ffmpeg: str, png: Path) -> None:
+    """Reduce one finished picture in place, so it holds no grey the screen lacks."""
+    flat = png.with_suffix(".flat.png")
+    _run(
+        [ffmpeg, "-y", "-i", str(png), "-vf", _grey_chain(), "-frames:v", "1", str(flat)],
+        f"could not flatten {png.name} to four greys",
+    )
+    flat.replace(png)
 
 
 PREVIEW_SIZE = (160, 120)
@@ -293,9 +338,17 @@ def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path, x: int, y: int)
 
 
 def write_cover(
-    source: Path, out_dir: Path, labels: Sequence[str], texts: Sequence[str], crop: str = "center"
+    source: Path,
+    out_dir: Path,
+    labels: Sequence[str],
+    texts: Sequence[str],
+    crop: str = "center",
+    style: str = "colour",
 ) -> None:
     """`title.png`, `cover.png` and one card per part, all from `source`.
+
+    `style` is the screen the pack is drawn for: `bw` flattens the picture to the
+    four Lunii greys and turns the card inside out, white ground and black ink.
 
     A card is a plain background with a small thumbnail of the cover, not the
     cover blown up behind the words: a book cut to the sentence level has
@@ -315,13 +368,20 @@ def write_cover(
         _crop(ffmpeg, source, IMAGE_SIZE, base, crop)
         _crop(ffmpeg, source, COVER_SIZE, square, crop)
         _crop(ffmpeg, source, CARD_THUMB, thumb, crop)
-        plain.write_bytes(flat_png())
+        plain.write_bytes(flat_png(style=style))
         _overlay(ffmpeg, plain, thumb, card_base, MARGIN, MARGIN)
 
         for index, (label, text) in enumerate(zip(labels, texts)):
             layer = scratch / f"layer{index}.png"
-            layer.write_bytes(card_layer_png(label, text))
+            layer.write_bytes(card_layer_png(label, text, style=style))
             _overlay(ffmpeg, card_base, layer, images / f"m{index}.png", 0, 0)
+            if style == "bw":
+                # Flattened last, once the compositing is done, so a card cannot
+                # pick up a fifth grey where two layers meet.
+                _flatten(ffmpeg, images / f"m{index}.png")
+        if style == "bw":
+            _flatten(ffmpeg, base)
+            _flatten(ffmpeg, square)
 
         shutil.copyfile(base, out_dir / TITLE_IMAGE)
         shutil.copyfile(square, out_dir / COVER_IMAGE)

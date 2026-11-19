@@ -40,6 +40,14 @@ daisy2telmi --force gon-ruby-mp3.zip stories     # overwrite an existing story f
 
 Exit codes: `0` success, `1` pack unreadable or ffmpeg failed, `2` bad arguments / not a DAISY pack / story folder already exists.
 
+### Output format
+
+```bash
+daisy2telmi --format lunii gon-ruby-mp3.zip stories
+```
+
+`--format telmi|lunii|flam` picks the player the story is written for; Telmi is the default. The story folder is always written, and one archive comes out of it: `story.zip` for the Telmi Sync and the Flam launcher, which both import TELMI folders, or `<story>-lunii.zip` in the STUdio form for a Lunii. A plain Lunii has no colour panel and four grey levels, so choosing it draws a second set of cards — white ground, black ink, flattened to `0/96/192/255` — and builds the archive from those. The GUI has the same three choices under the cover field.
+
 ### Spoken chapter cards
 
 A chapter card can speak when it appears, so a listener who cannot see the screen knows where the book is:

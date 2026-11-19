@@ -16,10 +16,11 @@ test("every language translates every key", () => {
 });
 
 // "source" is French too, and Spanish writes `error:` the same way, so those two
-// keys may match English; `card_number` is digits around a slash in every language.
+// keys may match English; `card_number` is digits around a slash in every language;
+// Telmi and the Flam are the players' names, which no language translates.
 // Anything else that matches was left untranslated.
 test("no language is left in English by accident", () => {
-  const allowed = new Set(["footer_line", "log_error", "card_number"]);
+  const allowed = new Set(["footer_line", "log_error", "card_number", "fmt_telmi", "fmt_flam"]);
   for (const code of LANGUAGES) {
     if (code === "en") continue;
     const copied = Object.keys(UI.en).filter(
