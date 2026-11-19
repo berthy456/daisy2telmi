@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, replace
@@ -136,12 +137,32 @@ def render_preview(info: ChapterInfo, chapter: Chapter, out_dir: Path) -> Path:
     return dest
 
 
+def _ffplay() -> str | None:
+    bundled = audio.bundled_executable("ffplay")
+    return str(bundled) if bundled else shutil.which("ffplay")
+
+
 def open_preview(path: Path) -> None:
-    """Hand the rendered chapter to the desktop's own player."""
-    try:
-        if sys.platform == "win32":
+    """Hand the rendered chapter to a player the machine already has.
+
+    The desktop's own opener is tried first because it is the player the user
+    chose for MP3s; a bare window manager has none, and ffmpeg is a dependency
+    already, so it can play the file itself.
+    """
+    if sys.platform == "win32":
+        try:
             os.startfile(str(path))  # type: ignore[attr-defined]
-        else:
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
-    except OSError as exc:
-        raise ChapterError(f"could not open {path.name}: {exc}")
+        except OSError as exc:
+            raise ChapterError(f"could not open {path.name}: {exc}")
+        return
+    players = [["open" if sys.platform == "darwin" else "xdg-open", str(path)]]
+    play = _ffplay()
+    if play:
+        players.append([play, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)])
+    for argv in players:
+        try:
+            subprocess.Popen(argv)
+            return
+        except OSError:
+            continue
+    raise ChapterError(f"no player on this machine: play {path} yourself")

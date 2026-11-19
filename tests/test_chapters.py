@@ -113,3 +113,33 @@ def test_opening_a_preview_hands_the_file_to_the_desktop(monkeypatch) -> None:
     monkeypatch.setattr(chapters.sys, "platform", "linux")
     chapters.open_preview(Path("/tmp/01 One.mp3"))
     assert started == [["xdg-open", "/tmp/01 One.mp3"]]
+
+
+def test_a_preview_falls_back_to_ffplay_when_the_desktop_has_no_player(monkeypatch) -> None:
+    """A bare window manager has no MP3 opener, and ffmpeg is a dependency already."""
+    started: list[list[str]] = []
+
+    def spawn(args):
+        if args[0] == "open":
+            raise OSError("no default player")
+        started.append(list(args))
+
+    monkeypatch.setattr(chapters.sys, "platform", "darwin")
+    monkeypatch.setattr(chapters, "_ffplay", lambda: "/app/ffplay")
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+
+    chapters.open_preview(Path("/tmp/01 One.mp3"))
+
+    assert started == [["/app/ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "/tmp/01 One.mp3"]]
+
+
+def test_a_machine_with_no_player_at_all_says_so(monkeypatch) -> None:
+    def refuse(args):
+        raise OSError("no player")
+
+    monkeypatch.setattr(chapters.sys, "platform", "linux")
+    monkeypatch.setattr(chapters, "_ffplay", lambda: None)
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+
+    with pytest.raises(chapters.ChapterError, match="no player"):
+        chapters.open_preview(Path("/tmp/01 One.mp3"))

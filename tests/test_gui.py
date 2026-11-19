@@ -241,9 +241,68 @@ def test_the_chapter_window_lists_the_chapters(app: gui.App, three_chapters) -> 
     page._measure()
     page._drain()
 
-    assert [label.cget("text") for label in page.sizes] == ["0:12"] * 3
+    assert [page.rows.set(iid, "length") for iid in page.rows.get_children()] == ["0:12"] * 3
     assert [box.get() for box in page.keep] == [True, True, True]
     assert page.info[1].title == "Deux"
+
+
+def test_the_parts_are_drawn_rather_than_built(app: gui.App, three_chapters, monkeypatch) -> None:
+    """A book cut to the sentence level has hundreds of parts. One widget per row
+    runs X out of pixmaps and kills the app, so the list must stay one widget."""
+    many = Book(
+        "Wesh la fee",
+        tuple(Chapter(f"Phrase {n}", ()) for n in range(1000)),
+    )
+    monkeypatch.setattr(gui, "extract", lambda pack, level="chapter": many)
+
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+
+    assert len(page.rows.get_children()) == 1000
+    assert page.rows.winfo_children() == []
+
+
+def test_clicking_a_row_s_tick_leaves_it_out(app: gui.App, three_chapters) -> None:
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._toggle(1)
+
+    assert page.keep[1].get() is False
+    assert page.rows.set("1", "keep") == "☐"
+    page._close()
+    assert app.dropped == {2}
+
+
+def test_listening_to_a_part_says_so_in_its_own_window(
+    app: gui.App, three_chapters, monkeypatch, tmp_path
+) -> None:
+    played: list = []
+    monkeypatch.setattr(
+        gui.chapters, "render_preview", lambda info, chapter, out: tmp_path / f"{info.number}.mp3"
+    )
+    monkeypatch.setattr(gui.chapters, "open_preview", played.append)
+
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._render(page.info[1], page.book.chapters[1])
+    page._drain()
+
+    assert played == [tmp_path / "2.mp3"]
+    assert page.status.cget("text") == app.t("chapters_playing").format(n=2)
+    assert page.play_button.instate(["!disabled"])
+
+
+def test_a_part_that_will_not_play_says_why_under_the_cursor(
+    app: gui.App, three_chapters, monkeypatch, tmp_path
+) -> None:
+    def refuse(info, chapter, out):
+        raise gui.chapters.ChapterError("no audio for that part")
+
+    monkeypatch.setattr(gui.chapters, "render_preview", refuse)
+
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._render(page.info[0], page.book.chapters[0])
+    page._drain()
+
+    assert "no audio for that part" in page.status.cget("text")
+    assert page.play_button.instate(["!disabled"])
 
 
 def test_unchecking_a_chapter_leaves_it_out_of_the_story(

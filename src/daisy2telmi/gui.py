@@ -341,7 +341,16 @@ class ChapterList:
     Durations and previews run on worker threads and post their results to a queue
     the Tk thread drains: widgets may only be touched from the thread that made
     them.
+
+    The parts are drawn by one Treeview rather than a row of widgets each. A book
+    cut to the sentence level has hundreds of parts, and X runs out of pixmaps
+    long before that: the tree draws only the rows on screen, so the list stays
+    scrollable at any level.
     """
+
+    PART_COLUMNS = ("keep", "number", "title", "length")
+    TICK_COLUMN = "#1"
+    SHOWN_ROWS = 16
 
     def __init__(self, app: App, source: Path) -> None:
         self.app = app
@@ -361,6 +370,7 @@ class ChapterList:
         grid = ttk.Frame(self.top, padding=12)
         grid.grid(sticky="nsew")
         grid.columnconfigure(0, weight=1)
+        grid.rowconfigure(3, weight=1)
 
         # The levels stay shut until the pack has been read: which of them the
         # pack can actually cut at is only known once its own outline is in hand.
@@ -384,8 +394,46 @@ class ChapterList:
         self.counts.grid(row=1, column=0, sticky="w", pady=(2, 6))
         ttk.Label(grid, text=app.t("chapters_hint")).grid(row=2, column=0, sticky="w", pady=(0, 6))
 
-        self.rows = ttk.Frame(grid)
-        self.rows.grid(row=3, column=0, sticky="nsew")
+        listing = ttk.Frame(grid)
+        listing.grid(row=3, column=0, sticky="nsew")
+        listing.columnconfigure(0, weight=1)
+        listing.rowconfigure(0, weight=1)
+        self.rows = ttk.Treeview(
+            listing,
+            columns=self.PART_COLUMNS,
+            show="headings",
+            height=self.SHOWN_ROWS,
+            selectmode="browse",
+        )
+        self.rows.heading("keep", text="")
+        self.rows.heading("number", text="#")
+        self.rows.heading("title", text=app.t("chapters"))
+        self.rows.heading("length", text=app.t("chapters_length"))
+        self.rows.column("keep", width=34, stretch=False, anchor="center")
+        self.rows.column("number", width=52, stretch=False, anchor="e")
+        self.rows.column("title", width=320)
+        self.rows.column("length", width=64, stretch=False, anchor="e")
+        self.rows.grid(row=0, column=0, sticky="nsew")
+        scroller = ttk.Scrollbar(listing, orient="vertical", command=self.rows.yview)
+        scroller.grid(row=0, column=1, sticky="ns")
+        self.rows.configure(yscrollcommand=scroller.set)
+        self.rows.bind("<ButtonRelease-1>", self._click)
+        self.rows.bind("<space>", lambda _event: self._toggle_selected())
+        self.rows.bind("<Double-1>", lambda _event: self._play_selected())
+        self.rows.bind("<Return>", lambda _event: self._play_selected())
+
+        actions = ttk.Frame(grid)
+        actions.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        actions.columnconfigure(1, weight=1)
+        self.play_button = ttk.Button(
+            actions, text=app.t("chapters_play"), command=self._play_selected
+        )
+        self.play_button.grid(row=0, column=0)
+        self.status = ttk.Label(actions, text="")
+        self.status.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Button(actions, text=app.t("opt_close"), command=self._close).grid(row=0, column=2)
+
+        self.top.geometry("720x520")
         self._build()
         self.top.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -394,39 +442,55 @@ class ChapterList:
 
     def _build(self) -> None:
         """(Re)draw the part list for the level now chosen."""
-        for child in self.rows.winfo_children():
-            child.destroy()
+        self.rows.delete(*self.rows.get_children())
         self.book = extract(self.pack, self.cut)
         self.info = chapters.describe(self.book, with_durations=False)
         self.cache = (
             Path(tempfile.gettempdir()) / "daisy2telmi-preview" / (slugify(self.book.title) or "pack")
         )
         self.keep: list[tk.BooleanVar] = []
-        self.sizes: list[ttk.Label] = []
-        self.play_buttons: list[ttk.Button] = []
 
-        self.rows.columnconfigure(2, weight=1)
         for offset, info in enumerate(self.info):
             box = tk.BooleanVar(value=info.number not in self.app.dropped)
             self.keep.append(box)
-            ttk.Checkbutton(self.rows, variable=box).grid(row=offset, column=0, sticky="w")
-            ttk.Label(self.rows, text=str(info.number)).grid(row=offset, column=1, sticky="w", padx=(4, 8))
-            ttk.Label(self.rows, text=info.title).grid(row=offset, column=2, sticky="w")
-            size = ttk.Label(self.rows, text="")
-            size.grid(row=offset, column=3, sticky="e", padx=(12, 0))
-            self.sizes.append(size)
-            button = ttk.Button(
-                self.rows,
-                text=self.app.t("chapters_play"),
-                width=8,
-                command=lambda index=offset: self._play(index),
+            self.rows.insert(
+                "",
+                "end",
+                iid=str(offset),
+                values=(self._mark(box), info.number, info.title, ""),
             )
-            button.grid(row=offset, column=4, sticky="e", padx=(12, 0))
-            self.play_buttons.append(button)
+        self.status.configure(text="")
 
-        ttk.Button(
-            self.rows, text=self.app.t("opt_close"), command=self._close
-        ).grid(row=len(self.info), column=0, columnspan=5, sticky="e", pady=(10, 0))
+    @staticmethod
+    def _mark(box: tk.BooleanVar) -> str:
+        """The tick box drawn as text: a row of the tree is not a widget to put one in."""
+        return "☒" if box.get() else "☐"
+
+    def _toggle(self, index: int) -> None:
+        box = self.keep[index]
+        box.set(not box.get())
+        self.rows.set(str(index), "keep", self._mark(box))
+
+    def _click(self, event) -> str:
+        """A click on the tick changes that part; anywhere else it just selects the row."""
+        row = self.rows.identify_row(event.y)
+        if row and self.rows.identify_column(event.x) == self.TICK_COLUMN:
+            self._toggle(int(row))
+        return ""
+
+    def _selected(self) -> int | None:
+        chosen = self.rows.selection()
+        return int(chosen[0]) if chosen else None
+
+    def _toggle_selected(self) -> None:
+        index = self._selected()
+        if index is not None:
+            self._toggle(index)
+
+    def _play_selected(self) -> None:
+        index = self._selected()
+        if index is not None:
+            self._play(index)
 
     def _offer_levels(self, rows: list[chapters.LevelInfo]) -> None:
         """Open the levels the pack's own outline can cut at, and grey out the rest.
@@ -465,21 +529,20 @@ class ChapterList:
             self.events.put(("counts", chapters.describe_levels(books)))
 
     def _play(self, index: int) -> None:
-        for button in self.play_buttons:
-            button.state(["disabled"])
+        self.play_button.state(["disabled"])
+        self.status.configure(text=self.app.t("chapters_loading"))
         threading.Thread(
             target=self._render, args=(self.info[index], self.book.chapters[index]), daemon=True
         ).start()
 
     def _render(self, info: chapters.ChapterInfo, chapter) -> None:
         try:
-            self.events.put(("play", chapters.render_preview(info, chapter, self.cache)))
+            self.events.put(("play", (info.number, chapters.render_preview(info, chapter, self.cache))))
         except (chapters.ChapterError, audio.AudioError) as exc:
-            self.events.put(("error", str(exc)))
+            self.events.put(("error", (info.number, str(exc))))
 
     def _enable(self) -> None:
-        for button in self.play_buttons:
-            button.state(["!disabled"])
+        self.play_button.state(["!disabled"])
 
     def _drain(self) -> None:
         if not self.top.winfo_exists():
@@ -494,8 +557,8 @@ class ChapterList:
                 cut, rows = payload
                 if cut != self.cut:
                     continue  # a rebuild already replaced the rows these were measured for
-                for label, info in zip(self.sizes, rows):
-                    label.configure(text=chapters.format_seconds(info.seconds))
+                for offset, info in enumerate(rows):
+                    self.rows.set(str(offset), "length", chapters.format_seconds(info.seconds))
             elif kind == "counts":
                 self.counts.configure(
                     text="   ".join(
@@ -506,15 +569,27 @@ class ChapterList:
                 )
                 self._offer_levels(payload)
             elif kind == "play":
+                number, path = payload
+                self.status.configure(
+                    text=self.app.t("chapters_playing").format(n=number)
+                )
                 try:
-                    chapters.open_preview(payload)
+                    chapters.open_preview(path)
                 except chapters.ChapterError as exc:
-                    self.app._append(f"ERROR: {exc}")
+                    self._report("chapters_failed", number, exc)
                 self._enable()
             else:
-                self.app._append(f"ERROR: {payload}")
+                number, reason = payload
+                self._report("chapters_failed", number, reason)
                 self._enable()
         self.top.after(100, self._drain)
+
+    def _report(self, key: str, number: int, reason: object) -> None:
+        """Say what went wrong under the user's cursor: the main window's log is
+        behind this one, which is why a failed preview used to look like nothing."""
+        message = self.app.t(key).format(n=number, error=reason)
+        self.status.configure(text=message)
+        self.app._append(f"ERROR: {message}")
 
     def _close(self) -> None:
         self.app.dropped = {
