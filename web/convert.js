@@ -102,13 +102,14 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
   });
   step(say("prog_title_images"));
 
-  files.push({ name: `${dirName}/metadata.json`, data: json(buildMetadata(book, uuid)) });
-  const chapterNames = book.chapters.map((_, k) => `s${k}`);
-  files.push({ name: `${dirName}/nodes.json`, data: json(buildNodes(chapterNames, cards)) });
+  const metadata = buildMetadata(book, uuid);
+  const nodes = buildNodes(book.chapters.map((_, k) => `s${k}`), cards);
+  files.push({ name: `${dirName}/metadata.json`, data: json(metadata) });
+  files.push({ name: `${dirName}/nodes.json`, data: json(nodes) });
   files.push({ name: `${dirName}/notes.json`, data: json(buildNotes(book)) });
   step(say("prog_metadata"));
 
-  return { dirName, uuid, book, files };
+  return { dirName, uuid, book, files, metadata, nodes };
 }
 
 export async function buildStoryZip(entries, silentMp3, onProgress, options) {

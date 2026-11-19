@@ -163,11 +163,16 @@ input[type="file"] {
   margin-top: 0.5rem;
 }
 
+.check,
 .cut-row label {
   display: inline-flex;
   gap: 0.35rem;
   align-items: center;
   color: var(--ink);
+}
+
+.check {
+  margin-top: 0.75rem;
 }
 
 .cover-row input[type="url"] {

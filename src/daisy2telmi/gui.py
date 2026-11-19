@@ -228,6 +228,7 @@ class App:
                 cover,
                 ",".join(str(number) for number in dropped) if dropped else None,
                 self.cut,
+                self.options["lunii"],
             ),
             daemon=True,
         ).start()
@@ -241,8 +242,9 @@ class App:
         cover: Path | None,
         drop: str | None,
         cut: str,
+        lunii: bool,
     ) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut)))
+        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut, lunii)))
 
     def _drain(self) -> None:
         while True:
@@ -451,14 +453,16 @@ class Options:
         self.engine_box = self._combo(self.engine_keys, app.options["tts"])
         self.voice_box = self._combo([None], app.options["voice"])
         self.autoplay_var = tk.BooleanVar(value=bool(app.options["autoplay"]))
+        self.lunii_var = tk.BooleanVar(value=bool(app.options["lunii"]))
 
         self._row(grid, "opt_language", 0, self.language_box)
         self._row(grid, "opt_announce", 1, self.announce_box)
         self._row(grid, "opt_autoplay", 2, ttk.Checkbutton(grid, variable=self.autoplay_var))
-        self._row(grid, "opt_engine", 3, self.engine_box)
-        self._row(grid, "opt_voice", 4, self.voice_box)
+        self._row(grid, "opt_lunii", 3, ttk.Checkbutton(grid, variable=self.lunii_var))
+        self._row(grid, "opt_engine", 4, self.engine_box)
+        self._row(grid, "opt_voice", 5, self.voice_box)
         ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=5, column=0, columnspan=2, sticky="e", pady=(12, 0)
+            row=6, column=0, columnspan=2, sticky="e", pady=(12, 0)
         )
 
         self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
@@ -510,6 +514,7 @@ class Options:
                 "language": self._chosen(self.language_box, self.language_keys),
                 "announce": self._chosen(self.announce_box, self.announce_keys),
                 "autoplay": self.autoplay_var.get(),
+                "lunii": self.lunii_var.get(),
                 "tts": self._chosen(self.engine_box, self.engine_keys),
                 "voice": self._chosen(self.voice_box, self.voice_keys),
             }

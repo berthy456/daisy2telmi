@@ -15,6 +15,7 @@ from daisy2telmi.cli import main
 from daisy2telmi.detector import open_pack
 from daisy2telmi.extractor import extract
 from daisy2telmi.telmi_builder import story_dir_name
+from lunii_validator import validate_studio_zip
 from nodes_validator import validate_story_dir, validate_story_zip
 
 _PACK_CANDIDATES = (
@@ -273,6 +274,25 @@ def test_a_pack_without_front_matter_gets_a_silent_title(tmp_path: Path) -> None
     story = next(entry for entry in out.iterdir() if entry.is_dir())
     assert float(probe(story / "title.mp3")["duration"]) == pytest.approx(1.0, abs=0.2)
     assert float(probe(story / "audios" / "s0.mp3")["duration"]) == pytest.approx(2.0, abs=0.2)
+
+
+@requires_pack
+def test_the_lunii_flag_writes_an_archive_lunii_imports(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--lunii"]) == 0
+    story = next(entry for entry in out.iterdir() if entry.is_dir())
+    archive = out / f"{story.name}-lunii.zip"
+    assert archive.is_file(), f"no Lunii archive beside {story}"
+    assert validate_studio_zip(archive) == []
+
+
+@requires_pack
+def test_no_lunii_archive_is_written_unless_asked(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out)]) == 0
+    assert not list(out.glob("*-lunii.zip"))
 
 
 @requires_pack

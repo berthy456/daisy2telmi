@@ -44,14 +44,18 @@ function bytesToUuid(bytes) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** RFC 4122 uuid5 over the daisy2telmi namespace, so the CLI and the page agree. */
-export async function storyUuid(book) {
-  const seed = book.identifier || `${book.title}|${book.author ?? ""}|${book.chapters.length}`;
-  const input = new Uint8Array([...hexToBytes(UUID_NAMESPACE), ...new TextEncoder().encode(seed)]);
+/** RFC 4122 uuid5, so the CLI and the page agree on every id in the story. */
+export async function uuid5(namespace, value) {
+  const input = new Uint8Array([...hexToBytes(namespace), ...new TextEncoder().encode(value)]);
   const out = new Uint8Array(await crypto.subtle.digest("SHA-1", input)).subarray(0, 16);
   out[6] = (out[6] & 0x0f) | 0x50;
   out[8] = (out[8] & 0x3f) | 0x80;
   return bytesToUuid(out);
+}
+
+export async function storyUuid(book) {
+  const seed = book.identifier || `${book.title}|${book.author ?? ""}|${book.chapters.length}`;
+  return uuid5(UUID_NAMESPACE, seed);
 }
 
 /** `cardAudio[k]` is the file each menu card says, or null for a silent card. */

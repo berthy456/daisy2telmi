@@ -12,6 +12,7 @@ from .chapters import ChapterError
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES
+from .lunii import LuniiError, write_studio_zip
 from .telmi_builder import (
     Announce,
     StoryError,
@@ -88,6 +89,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="command template for --tts command, using {text}, {out} and {lang}; "
         "for example 'my-tts {text} {out}' with any Chatterbox-style model behind it",
     )
+    parser.add_argument(
+        "--lunii",
+        action="store_true",
+        help="also write a .zip the Lunii's own tools import, beside the Telmi one",
+    )
     parser.add_argument("--version", action="version", version=f"daisy2telmi {__version__}")
     args = parser.parse_args(argv)
     if args.output is None and not (args.list or args.preview):
@@ -111,6 +117,11 @@ def announce_options(args: argparse.Namespace) -> Announce:
 def cut_level(args: argparse.Namespace) -> str:
     """Saved cut level, overridden by --cut."""
     return args.cut or settings.load()["cut"]
+
+
+def also_lunii(args: argparse.Namespace) -> bool:
+    """Saved Lunii option, overridden by --lunii."""
+    return bool(args.lunii or settings.load()["lunii"])
 
 
 def inspect(
@@ -173,6 +184,7 @@ def convert(
     cover: Path | None = None,
     drop: str | None = None,
     cut: str = "chapter",
+    lunii: bool = False,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     try:
@@ -205,15 +217,21 @@ def convert(
             target.mkdir(parents=True, exist_ok=True)
             report = build_story(book, target, announce, cover, cut)
             zip_path = write_story_zip(target, target.parent)
+            studio_path = write_studio_zip(target) if lunii else None
     except ChapterError as exc:
         log.error("%s", exc)
         return 2
     except (DaisyPackError, StoryError, images.ImageError, audio.AudioError) as exc:
         log.error("%s", exc)
         return 1
+    except LuniiError as exc:
+        log.error("the Telmi story is written, but the Lunii one is not: %s", exc)
+        return 1
 
     log.info("wrote %d scene(s) to %s", len(report.stages), report.out_dir)
     log.info("zipped for Telmi Sync import: %s", zip_path)
+    if studio_path is not None:
+        log.info("zipped for Lunii import: %s", studio_path)
     log.info(
         "audio: %s",
         {
@@ -242,7 +260,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.list or args.preview:
         return inspect(args.input, args.preview, args.drop, cut_level(args))
     return convert(
-        args.input, args.output, args.force, announce_options(args), args.cover, args.drop, cut_level(args)
+        args.input,
+        args.output,
+        args.force,
+        announce_options(args),
+        args.cover,
+        args.drop,
+        cut_level(args),
+        also_lunii(args),
     )
 
 

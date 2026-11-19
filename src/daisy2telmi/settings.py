@@ -20,6 +20,7 @@ DEFAULTS: dict = {
     "language": "en",
     "announce": "prompt",
     "autoplay": False,
+    "lunii": False,
     "tts": "auto",
     "voice": None,
     "command": None,

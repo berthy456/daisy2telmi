@@ -1,6 +1,7 @@
 import { loadCoverFile, loadCoverUrl, previewDataUrl, searchUrl } from "./cover.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
+import { buildStudioZip } from "./lunii.js";
 import { cardAudio } from "./voices.js";
 import { readZip } from "./zip.js";
 
@@ -20,10 +21,13 @@ const coverClear = document.getElementById("cover-clear");
 const coverPreview = document.getElementById("cover-preview");
 const coverSearch = document.getElementById("cover-search");
 const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
+const luniiBox = document.getElementById("lunii");
+const luniiLink = document.getElementById("download-lunii");
 
 const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffer());
 const STORED_LANGUAGE = "daisy2telmi.language";
 const STORED_CUT = "daisy2telmi.cut";
+const STORED_LUNII = "daisy2telmi.lunii";
 // The summary lists the parts it starts; a book cut to the sentence level has hundreds.
 const LISTED_PARTS = 30;
 
@@ -82,6 +86,11 @@ function startCut() {
   }
 }
 
+function startLunii() {
+  luniiBox.checked = saved(STORED_LUNII) === "1";
+  luniiBox.addEventListener("change", () => remember(STORED_LUNII, luniiBox.checked ? "1" : "0"));
+}
+
 function setCover(bitmap) {
   if (cover) cover.close();
   cover = bitmap;
@@ -115,6 +124,8 @@ async function convert() {
   convertButton.disabled = true;
   downloadLink.hidden = true;
   downloadLink.removeAttribute("href");
+  luniiLink.hidden = true;
+  luniiLink.removeAttribute("href");
   bar.hidden = false;
   bar.value = 0;
 
@@ -148,6 +159,14 @@ async function convert() {
     downloadLink.hidden = false;
     bar.value = 1;
     log(t("log_ready", { name: `${story.dirName}.zip` }));
+
+    if (luniiBox.checked) {
+      const studioName = `${story.dirName}-lunii.zip`;
+      luniiLink.href = URL.createObjectURL(new Blob([await buildStudioZip(story)], { type: "application/zip" }));
+      luniiLink.download = studioName;
+      luniiLink.hidden = false;
+      log(t("log_lunii", { name: studioName }));
+    }
   } catch (error) {
     log(t("log_error", { message: error.message ?? error }));
     bar.hidden = true;
@@ -161,6 +180,8 @@ function setSource(name, loader) {
   convertButton.disabled = false;
   downloadLink.hidden = true;
   downloadLink.removeAttribute("href");
+  luniiLink.hidden = true;
+  luniiLink.removeAttribute("href");
   logView.textContent = "";
   coverSearch.href = searchUrl(name.replace(/\.[^.]+$/, ""));
   coverSearch.hidden = false;
@@ -228,3 +249,4 @@ convertButton.addEventListener("click", convert);
 
 startLanguage();
 startCut();
+startLunii();
