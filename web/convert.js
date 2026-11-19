@@ -15,6 +15,7 @@ const json = (value) => new TextEncoder().encode(`${JSON.stringify(value, null, 
  * onProgress(label, done, total): optional progress callback.
  * options.cover: an ImageBitmap to crop into every scene image.
  * options.cardLabel(number, total): the words drawn on a chapter card.
+ * options.cardAudio(number): bytes for the card to say, or null to leave it silent.
  */
 export async function buildStoryFiles(entries, silentMp3, onProgress = () => {}, options = {}) {
   const book = extractBook(entries);
@@ -29,6 +30,8 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
   const cover = options.cover ?? null;
   const cardLabel = options.cardLabel ?? ((number, count) => `Chapter ${number}/${count}`);
   const say = options.t ?? ((key) => key);
+  const spoken = options.cardAudio ?? (async () => null);
+  const cards = [];
   let done = 0;
 
   const step = (label) => {
@@ -43,6 +46,11 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
       ? await coverPng(cover, ...IMAGE_SIZE, cardLabel(k + 1, chapterCount))
       : await chapterPng(k + 1);
     files.push({ name: `${dirName}/images/m${k}.png`, data: card });
+
+    const voice = await spoken(k + 1);
+    cards[k] = voice === null ? null : `c${k}.mp3`;
+    if (voice !== null) files.push({ name: `${dirName}/audios/c${k}.mp3`, data: voice });
+
     step(`${k + 1}/${chapterCount}: ${chapter.title}`);
   }
 
@@ -65,7 +73,8 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
   step(say("prog_title_images"));
 
   files.push({ name: `${dirName}/metadata.json`, data: json(buildMetadata(book, uuid)) });
-  files.push({ name: `${dirName}/nodes.json`, data: json(buildNodes(book.chapters.map((_, k) => `s${k}`))) });
+  const chapterNames = book.chapters.map((_, k) => `s${k}`);
+  files.push({ name: `${dirName}/nodes.json`, data: json(buildNodes(chapterNames, cards)) });
   files.push({ name: `${dirName}/notes.json`, data: json(buildNotes(book)) });
   step(say("prog_metadata"));
 

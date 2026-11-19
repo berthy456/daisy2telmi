@@ -1,6 +1,7 @@
 import { loadCoverFile, loadCoverUrl, previewDataUrl, searchUrl } from "./cover.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
+import { cardAudio } from "./voices.js";
 import { readZip } from "./zip.js";
 
 const drop = document.getElementById("drop");
@@ -114,6 +115,11 @@ async function convert() {
         cover,
         t: (key) => t(key),
         cardLabel: (number, total) => t("card_label", { n: number, total }),
+        cardAudio: async (number) => {
+          const voice = await cardAudio(lang, number);
+          if (voice === null) log(t("log_card_silent", { n: number }));
+          return voice;
+        },
       },
     );
 

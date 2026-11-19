@@ -49,14 +49,11 @@ export const UI = {
     before_1:
       "Audio is kept at the source rate instead of being re-encoded. Telmi's player resamples to 44100 Hz itself, so it plays, but the quality stays where the DAISY pack left it.",
     before_2:
-      "Clips are taken as whole files. A pack that trims inside a file will keep the whole file; use the command line tool for exact clip ranges.",
+      "Clips are taken as whole files. A pack that trims inside a file keeps the whole file.",
     before_3: "Only audio books are handled. Synchronised text and TTS are not.",
-    before_4: "Scene images are the cover, or a placeholder showing the chapter number.",
-    cli_line:
-      'For exact re-encoding and clip trimming, use the <a href="https://github.com/berthy456/daisy2telmi">command line converter</a>, which ships for Windows, Debian and macOS.',
-    desktop_title: "The desktop app does more",
+    before_4: "Scene images are the cover, or a placeholder showing the chapter number.",    desktop_title: "The desktop app does more",
     desktop_p1:
-      "A browser tab cannot run a speech synthesiser and write its output into the pack, so the chapter cards here stay silent. The desktop converter can speak them: each card says the chapter number, and can ask whether to continue, in English, French, Chinese, Arabic, Turkish, German, Italian, Spanish, Portuguese or Dutch. It also re-encodes audio to Telmi's exact spec, trims clips, and its window can be shown in those same languages.",
+      "The desktop app speaks the cards with any voice installed on your computer, re-encodes audio to Telmi's exact spec, trims clips inside a file, and lets you listen to each chapter before converting. Its window shows in English, French, Chinese, Arabic, Turkish, German, Italian, Spanish, Portuguese or Dutch.",
     desktop_line:
       'Get it from the <a href="https://github.com/berthy456/daisy2telmi/releases">releases page</a> for Windows, Debian, Ubuntu, macOS or as an AppImage.',
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">source</a>',
@@ -65,6 +62,7 @@ export const UI = {
     log_files: "reading {n} file(s)",
     log_ready: "ready: {name}",
     log_error: "error: {message}",
+    log_card_silent: "chapter {n} has no recorded announcement; its card stays silent",
     log_drop_zip: "drop a .zip pack, or use the folder button",
     log_chapters: "{n} chapter(s)",
     log_cover_set: "cover set: {w} x {h}",
@@ -100,14 +98,11 @@ export const UI = {
     before_1:
       "L'audio garde le débit de la source au lieu d'être ré-encodé. Le lecteur Telmi ré-échantillonne lui-même à 44100 Hz, donc il lit, mais la qualité reste celle du pack DAISY.",
     before_2:
-      "Les extraits sont pris comme des fichiers entiers. Un pack qui coupe dans un fichier garde le fichier entier ; utilisez l'outil en ligne de commande pour les coupes exactes.",
+      "Les extraits sont pris comme des fichiers entiers. Un pack qui coupe dans un fichier garde le fichier entier.",
     before_3: "Seuls les livres audio sont traités. Le texte synchronisé et la synthèse vocale ne le sont pas.",
-    before_4: "Les images de scène reprennent la couverture, ou un pastillage avec le numéro du chapitre.",
-    cli_line:
-      'Pour un ré-encodage et des coupes exacts, utilisez le <a href="https://github.com/berthy456/daisy2telmi">convertisseur en ligne de commande</a>, disponible pour Windows, Debian et macOS.',
-    desktop_title: "L'application de bureau fait plus",
+    before_4: "Les images de scène reprennent la couverture, ou un pastillage avec le numéro du chapitre.",    desktop_title: "L'application de bureau fait plus",
     desktop_p1:
-      "Un onglet ne peut pas faire tourner un synthétiseur vocal et écrire son résultat dans le pack, alors les cartes restent silencieuses ici. Le convertisseur de bureau peut les faire parler : chaque carte dit le numéro du chapitre et peut demander si on continue, en anglais, français, chinois, arabe, turc, allemand, italien, espagnol, portugais ou néerlandais. Il ré-encode aussi l'audio aux spécifications exactes de Telmi, coupe les extraits, et sa fenêtre s'affiche dans ces mêmes langues.",
+      "L'application de bureau fait parler les cartes avec n'importe quelle voix installée sur l'ordinateur, ré-encode l'audio aux spécifications exactes de Telmi, coupe les extraits dans un fichier et permet d'écouter chaque chapitre avant la conversion. Sa fenêtre s'affiche en anglais, français, chinois, arabe, turc, allemand, italien, espagnol, portugais ou néerlandais.",
     desktop_line:
       'Téléchargez-le depuis la <a href="https://github.com/berthy456/daisy2telmi/releases">page des versions</a> pour Windows, Debian, Ubuntu, macOS ou en AppImage.',
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">source</a>',
@@ -116,6 +111,7 @@ export const UI = {
     log_files: "lecture de {n} fichier(s)",
     log_ready: "prêt : {name}",
     log_error: "erreur : {message}",
+    log_card_silent: "le chapitre {n} n'a pas d'annonce enregistrée ; sa carte reste muette",
     log_drop_zip: "déposez un pack .zip, ou utilisez le bouton dossier",
     log_chapters: "{n} chapitre(s)",
     log_cover_set: "couverture choisie : {w} x {h}",
@@ -147,14 +143,11 @@ export const UI = {
       'zip 的命名方式与 Telmi Sync 相同：<code>&lt;category&gt;_&lt;age&gt;_&lt;title&gt;_&lt;uuid&gt;</code>，可直接从 <em>导入 &rarr; zip</em> 菜单导入。',
     before_title: "转换之前",
     before_1: "音频保留源码率，不重新编码。Telmi 播放器自己重采样到 44100 Hz，所以能播放，但音质取决于 DAISY 包。",
-    before_2: "片段按整个文件取出。若包在文件内部剪切，这里仍保留整个文件；精确剪切请用命令行工具。",
+    before_2: "片段按整个文件取出。若包在文件内部剪切，这里仍保留整个文件。",
     before_3: "只处理有声书，不处理同步文本和语音合成。",
-    before_4: "场景图片使用封面，或用显示章节号的占位图。",
-    cli_line:
-      '需要精确重编码和剪切，请使用<a href="https://github.com/berthy456/daisy2telmi">命令行转换器</a>，支持 Windows、Debian 和 macOS。',
-    desktop_title: "桌面版功能更多",
+    before_4: "场景图片使用封面，或用显示章节号的占位图。",    desktop_title: "桌面版功能更多",
     desktop_p1:
-      "浏览器标签页无法运行语音合成器并把结果写入包中，所以这里的章节卡片是静音的。桌面转换器可以让卡片说话：每张卡片读出章节号，还可以询问是否继续，支持英语、法语、中文、阿拉伯语、土耳其语、德语、意大利语、西班牙语、葡萄牙语和荷兰语。它还按 Telmi 规格重新编码音频、剪切片段，窗口界面也可用这些语言显示。",
+      "桌面版用电脑上安装的任意语音让卡片说话，按 Telmi 规格重新编码音频，可在文件内部剪切片段，并能在转换前试听每个章节。窗口界面可用英语、法语、中文、阿拉伯语、土耳其语、德语、意大利语、西班牙语、葡萄牙语和荷兰语显示。",
     desktop_line:
       "从<a href=\"https://github.com/berthy456/daisy2telmi/releases\">发布页</a>下载，支持 Windows、Debian、Ubuntu、macOS 和 AppImage。",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">源代码</a>',
@@ -163,6 +156,7 @@ export const UI = {
     log_files: "正在读取 {n} 个文件",
     log_ready: "完成：{name}",
     log_error: "错误：{message}",
+    log_card_silent: "没有第 {n} 章的录音；该卡片保持静音",
     log_drop_zip: "请放入 .zip 包，或使用文件夹按钮",
     log_chapters: "{n} 章",
     log_cover_set: "已选封面：{w} x {h}",
@@ -194,14 +188,11 @@ export const UI = {
       'يُسمّى ملف zip كما يسمّي Telmi Sync القصص: <code>&lt;category&gt;_&lt;age&gt;_&lt;title&gt;_&lt;uuid&gt;</code>، ويُستورد مباشرة من قائمة <em>استيراد &rarr; zip</em>.',
     before_title: "قبل التحويل",
     before_1: "يبقى الصوت بمعدل المصدر دون إعادة ترميز. مشغل Telmi يعيد التردد إلى 44100 هرتز بنفسه، فيعمل الصوت، لكن الجودة تبقى كما تركتها الحزمة.",
-    before_2: "تؤخذ المقاطع كملفات كاملة. الحزمة التي تقطع داخل ملف تبقى ملفها كاملاً؛ استخدم أداة الطرفية للقص الدقيق.",
+    before_2: "تؤخذ المقاطع كملفات كاملة. الحزمة التي تقطع داخل ملف تبقى ملفها كاملاً.",
     before_3: "تُعالج الكتب الصوتية فقط، لا النص المتزامن ولا تحويل النص إلى كلام.",
-    before_4: "صور المشاهد هي الغلاف، أو صورة مؤقتة تعرض رقم الفصل.",
-    cli_line:
-      'للإعادة الترميز والقص الدقيقين استخدم <a href="https://github.com/berthy456/daisy2telmi">محوّل الطرفية</a> المتوفر لويندوز وديبيان وmacOS.',
-    desktop_title: "تطبيق سطح المكتب أوسع",
+    before_4: "صور المشاهد هي الغلاف، أو صورة مؤقتة تعرض رقم الفصل.",    desktop_title: "تطبيق سطح المكتب أوسع",
     desktop_p1:
-      "لا يستطيع المتصفح تشغيل مُصنِّع صوت وكتابة مخرجاته في الحزمة، لذلك تبقى البطاقات صامتة هنا. محوّل سطح المكتب ينطقها: كل بطاقة تقول رقم الفصل ويمكنها أن تسأل قبل المتابعة، بالإنجليزية والفرنسية والصينية والعربية والتركية والألمانية والإيطالية والإسبانية والبرتغالية والهولندية. كما يعيد ترميز الصوت إلى مواصفات Telmi بدقة ويقص المقاطع، ويمكن عرض نافذته بهذه اللغات.",
+      "تطبيق سطح المكتب ينطق البطاقات بأي صوت مثبّت على الحاسوب، ويعيد ترميز الصوت إلى مواصفات Telmi بدقة، ويقص المقاطع داخل الملف، ويسمح بالاستماع إلى كل فصل قبل التحويل. وتُعرض نافذته بالإنجليزية والفرنسية والصينية والعربية والتركية والألمانية والإيطالية والإسبانية والبرتغالية والهولندية.",
     desktop_line:
       'نزّله من <a href="https://github.com/berthy456/daisy2telmi/releases">صفحة الإصدارات</a> لويندوز وديبيان وأوبونتو وmacOS أو كملف AppImage.',
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">المصدر</a>',
@@ -210,6 +201,7 @@ export const UI = {
     log_files: "قراءة {n} ملف",
     log_ready: "جاهز: {name}",
     log_error: "خطأ: {message}",
+    log_card_silent: "لا يوجد إعلان مسجّل للفصل {n}؛ تبقى بطاقته صامتة",
     log_drop_zip: "ضع حزمة zip أو استخدم زر المجلد",
     log_chapters: "{n} فصل",
     log_cover_set: "الغلاف: {w} x {h}",
@@ -245,14 +237,11 @@ export const UI = {
     before_1:
       "Ses yeniden kodlanmaz, kaynak hızında kalır. Telmi oynatıcısı kendisi 44100 Hz'e çevirdiği için çalar, ama kalite paketin bıraktığı yerde kalır.",
     before_2:
-      "Kırpıntılar bütün dosya olarak alınır. Bir dosyanın içinde kesim yapan paket dosyanın tamamını korur; kesin kırpım için komut satırı aracını kullanın.",
+      "Kırpıntılar bütün dosya olarak alınır. Bir dosyanın içinde kesim yapan paket dosyanın tamamını korur.",
     before_3: "Yalnızca sesli kitaplar işlenir. Eşzamanlı metin ve ses sentezi işlenmez.",
-    before_4: "Sahne resimleri kapaktır, ya da bölüm numarasını gösteren bir yer tutucudur.",
-    cli_line:
-      "Kesin yeniden kodlama ve kırpım için <a href=\"https://github.com/berthy456/daisy2telmi\">komut satırı dönüştürücüsünü</a> kullanın; Windows, Debian ve macOS için yayınlanır.",
-    desktop_title: "Masaüstü uygulaması daha fazlasını yapar",
+    before_4: "Sahne resimleri kapaktır, ya da bölüm numarasını gösteren bir yer tutucudur.",    desktop_title: "Masaüstü uygulaması daha fazlasını yapar",
     desktop_p1:
-      "Bir tarayıcı sekmesi ses sentezleyicisini çalıştırıp çıktısını pakete yazamaz, bu yüzden kartlar burada sessiz kalır. Masaüstü dönüştürücü onları konuşturabilir: her kart bölüm numarasını söyler ve devam edilip edilmeyeceğini sorabilir; İngilizce, Fransızca, Çince, Arapça, Türkçe, Almanca, İtalyanca, İspanyolca, Portekizce veya Felemenkçe. Ayrıca sesi Telmi'nin tam ölçütlerine göre yeniden kodlar, kırpımları keser ve penceresi aynı dillerde gösterilir.",
+      "Masaüstü uygulaması kartları bilgisayarda kurulu herhangi bir sesle konuşturur, sesi Telmi'nin tam ölçütlerine göre yeniden kodlar, kırpımları dosyanın içinde keser ve dönüştürmeden önce her bölümü dinletir. Penceresi İngilizce, Fransızca, Çince, Arapça, Türkçe, Almanca, İtalyanca, İspanyolca, Portekizce ve Felemenkçe gösterilir.",
     desktop_line:
       "<a href=\"https://github.com/berthy456/daisy2telmi/releases\">Sürümler sayfasından</a> Windows, Debian, Ubuntu, macOS veya AppImage olarak edinin.",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">kaynak</a>',
@@ -261,6 +250,7 @@ export const UI = {
     log_files: "{n} dosya okunuyor",
     log_ready: "hazır: {name}",
     log_error: "hata: {message}",
+    log_card_silent: "bolum {n} icin kayit yok; karti sessiz kalir",
     log_drop_zip: "bir .zip paketi bırakın ya da klasör düğmesini kullanın",
     log_chapters: "{n} bölüm",
     log_cover_set: "kapak seçildi: {w} x {h}",
@@ -296,14 +286,11 @@ export const UI = {
     before_1:
       "Audio bleibt in der Quellrate statt neu kodiert zu werden. Der Telmi-Spieler sampelt selbst auf 44100 Hz um, es läuft also, aber die Qualität bleibt, wo das DAISY-Paket sie hinterlassen hat.",
     before_2:
-      "Ausschnitte werden als ganze Dateien übernommen. Ein Paket, das innerhalb einer Datei schneidet, behält die ganze Datei; für exakte Schnitte das Kommandozeilenwerkzeug benutzen.",
+      "Ausschnitte werden als ganze Dateien übernommen. Ein Paket, das innerhalb einer Datei schneidet, behält die ganze Datei.",
     before_3: "Nur Hörbücher werden verarbeitet. Synchronisierter Text und Sprachausgabe nicht.",
-    before_4: "Die Szenenbilder sind das Cover oder ein Platzhalter mit der Kapitelzahl.",
-    cli_line:
-      "Für exakte Neukodierung und Schnitte den <a href=\"https://github.com/berthy456/daisy2telmi\">Kommandozeilen-Konverter</a> benutzen; er erscheint für Windows, Debian und macOS.",
-    desktop_title: "Die Desktop-App kann mehr",
+    before_4: "Die Szenenbilder sind das Cover oder ein Platzhalter mit der Kapitelzahl.",    desktop_title: "Die Desktop-App kann mehr",
     desktop_p1:
-      "Ein Browser-Tab kann keinen Sprachsynthesizer laufen lassen und dessen Ausgabe ins Paket schreiben, deshalb bleiben die Karten hier stumm. Der Desktop-Konverter kann sie sprechen lassen: Jede Karte nennt die Kapitelzahl und kann fragen, ob es weitergeht, auf Englisch, Französisch, Chinesisch, Arabisch, Türkisch, Deutsch, Italienisch, Spanisch, Portugiesisch oder Niederländisch. Er kodiert Audio auch nach Telmis genauer Vorgabe neu, schneidet Ausschnitte, und sein Fenster ist in denselben Sprachen möglich.",
+      "Die Desktop-App lässt die Karten mit jeder auf dem Rechner installierten Stimme sprechen, kodiert Audio nach Telmis genauer Vorgabe neu, schneidet Ausschnitte innerhalb einer Datei und erlaubt es, jedes Kapitel vor der Konvertierung zu hören. Ihr Fenster ist auf Englisch, Französisch, Chinesisch, Arabisch, Türkisch, Deutsch, Italienisch, Spanisch, Portugiesisch und Niederländisch möglich.",
     desktop_line:
       "Aus der <a href=\"https://github.com/berthy456/daisy2telmi/releases\">Versionsseite</a> für Windows, Debian, Ubuntu, macOS oder als AppImage holen.",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">Quellcode</a>',
@@ -312,6 +299,7 @@ export const UI = {
     log_files: "{n} Datei(en) werden gelesen",
     log_ready: "bereit: {name}",
     log_error: "Fehler: {message}",
+    log_card_silent: "Kapitel {n} hat keine Aufnahme; die Karte bleibt stumm",
     log_drop_zip: "ein .zip-Paket ablegen oder das Ordner-Knöpfchen benutzen",
     log_chapters: "{n} Kapitel",
     log_cover_set: "Cover gesetzt: {w} x {h}",
@@ -347,14 +335,11 @@ export const UI = {
     before_1:
       "L'audio resta alla velocità della fonte invece di essere ricodificato. Il lettore Telmi ricampiona da sé a 44100 Hz, quindi funziona, ma la qualità resta quella del pacchetto DAISY.",
     before_2:
-      "Le clip sono prese come file interi. Un pacchetto che taglia dentro un file mantiene il file intero; per tagli esatti usa lo strumento a riga di comando.",
+      "Le clip sono prese come file interi. Un pacchetto che taglia dentro un file mantiene il file intero.",
     before_3: "Solo gli audiolibri sono gestiti. Il testo sincronizzato e la sintesi vocale no.",
-    before_4: "Le immagini di scena sono la copertina, o un segnaposto con il numero del capitolo.",
-    cli_line:
-      "Per ricodifica e tagli esatti usa il <a href=\"https://github.com/berthy456/daisy2telmi\">convertitore a riga di comando</a>, disponibile per Windows, Debian e macOS.",
-    desktop_title: "L'app per desktop fa di più",
+    before_4: "Le immagini di scena sono la copertina, o un segnaposto con il numero del capitolo.",    desktop_title: "L'app per desktop fa di più",
     desktop_p1:
-      "Una scheda del browser non può far girare un sintetizzatore vocale e scriverne l'output nel pacchetto, quindi qui le carte restano mute. Il convertitore per desktop le fa parlare: ogni carta dice il numero del capitolo e può chiedere se continuare, in inglese, francese, cinese, arabo, turco, tedesco, italiano, spagnolo, portoghese o neerlandese. Ricodifica anche l'audio alle specifiche esatte di Telmi, taglia le clip e la sua finestra può essere mostrata nelle stesse lingue.",
+      "L'app per desktop fa parlare le carte con qualsiasi voce installata sul computer, ricodifica l'audio alle specifiche esatte di Telmi, taglia le clip dentro un file e permette di ascoltare ogni capitolo prima della conversione. La sua finestra si mostra in inglese, francese, cinese, arabo, turco, tedesco, italiano, spagnolo, portoghese o neerlandese.",
     desktop_line:
       "Prendilo dalla <a href=\"https://github.com/berthy456/daisy2telmi/releases\">pagina delle versioni</a> per Windows, Debian, Ubuntu, macOS o come AppImage.",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">sorgente</a>',
@@ -363,6 +348,7 @@ export const UI = {
     log_files: "lettura di {n} file",
     log_ready: "pronto: {name}",
     log_error: "errore: {message}",
+    log_card_silent: "il capitolo {n} non ha annuncio registrato; la scheda resta silenziosa",
     log_drop_zip: "trascina un pacchetto .zip o usa il pulsante cartella",
     log_chapters: "{n} capitolo/i",
     log_cover_set: "copertina scelta: {w} x {h}",
@@ -398,14 +384,11 @@ export const UI = {
     before_1:
       "El audio conserva la tasa de origen en vez de recodificarse. El reproductor Telmi remuestrea él mismo a 44100 Hz, así que suena, pero la calidad queda donde la dejó el paquete DAISY.",
     before_2:
-      "Los fragmentos se toman como archivos completos. Un paquete que recorta dentro de un archivo conserva el archivo entero; usa la herramienta de línea de comandos para recortes exactos.",
+      "Los fragmentos se toman como archivos completos. Un paquete que recorta dentro de un archivo conserva el archivo entero.",
     before_3: "Solo se procesan audiolibros. El texto sincronizado y la síntesis de voz no.",
-    before_4: "Las imágenes de escena son la portada, o un marcador con el número de capítulo.",
-    cli_line:
-      "Para recodificación y recortes exactos, usa el <a href=\"https://github.com/berthy456/daisy2telmi\">conversor de línea de comandos</a>, disponible para Windows, Debian y macOS.",
-    desktop_title: "La aplicación de escritorio hace más",
+    before_4: "Las imágenes de escena son la portada, o un marcador con el número de capítulo.",    desktop_title: "La aplicación de escritorio hace más",
     desktop_p1:
-      "Una pestaña del navegador no puede ejecutar un sintetizador de voz y escribir su salida en el paquete, así que aquí las tarjetas quedan mudas. El conversor de escritorio sí las hace hablar: cada tarjeta dice el número de capítulo y puede preguntar si continuar, en inglés, francés, chino, árabe, turco, alemán, italiano, español, portugués o neerlandés. También recodifica el audio a la especificación exacta de Telmi, recorta fragmentos y su ventana puede mostrarse en esos mismos idiomas.",
+      "La aplicación de escritorio hace hablar las tarjetas con cualquier voz instalada en el ordenador, recodifica el audio a la especificación exacta de Telmi, recorta fragmentos dentro de un archivo y permite escuchar cada capítulo antes de convertir. Su ventana se muestra en inglés, francés, chino, árabe, turco, alemán, italiano, español, portugués y neerlandés.",
     desktop_line:
       "Bájalo de la <a href=\"https://github.com/berthy456/daisy2telmi/releases\">página de versiones</a> para Windows, Debian, Ubuntu, macOS o como AppImage.",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">código fuente</a>',
@@ -414,6 +397,7 @@ export const UI = {
     log_files: "leyendo {n} archivo(s)",
     log_ready: "listo: {name}",
     log_error: "error: {message}",
+    log_card_silent: "el capítulo {n} no tiene anuncio grabado; su ficha queda en silencio",
     log_drop_zip: "suelta un paquete .zip o usa el botón de carpeta",
     log_chapters: "{n} capítulo(s)",
     log_cover_set: "portada elegida: {w} x {h}",
@@ -449,14 +433,11 @@ export const UI = {
     before_1:
       "O áudio mantém a taxa de origem em vez de ser recodificado. O leitor Telmi reamostra sozinho para 44100 Hz, então toca, mas a qualidade fica onde o pacote DAISY a deixou.",
     before_2:
-      "Os trechos são pegos como arquivos inteiros. Um pacote que corta dentro de um arquivo mantém o arquivo inteiro; use a ferramenta de linha de comando para cortes exatos.",
+      "Os trechos são pegos como arquivos inteiros. Um pacote que corta dentro de um arquivo mantém o arquivo inteiro.",
     before_3: "Só audiobooks são tratados. Texto sincronizado e síntese de voz não.",
-    before_4: "As imagens de cena são a capa, ou um marcador com o número do capítulo.",
-    cli_line:
-      "Para recodificação e cortes exatos, use o <a href=\"https://github.com/berthy456/daisy2telmi\">conversor de linha de comando</a>, disponível para Windows, Debian e macOS.",
-    desktop_title: "O aplicativo de desktop faz mais",
+    before_4: "As imagens de cena são a capa, ou um marcador com o número do capítulo.",    desktop_title: "O aplicativo de desktop faz mais",
     desktop_p1:
-      "Uma aba do navegador não roda um sintetizador de voz nem escreve a saída no pacote, então os cartões aqui ficam mudos. O conversor de desktop os faz falar: cada cartão diz o número do capítulo e pode perguntar se continua, em inglês, francês, chinês, árabe, turco, alemão, italiano, espanhol, português ou holandês. Também recodifica o áudio à especificação exata do Telmi, corta trechos e sua janela pode ser mostrada nesses mesmos idiomas.",
+      "O aplicativo de desktop faz os cartões falarem com qualquer voz instalada no computador, recodifica o áudio à especificação exata do Telmi, corta trechos dentro de um arquivo e permite ouvir cada capítulo antes de converter. Sua janela aparece em inglês, francês, chinês, árabe, turco, alemão, italiano, espanhol, português e holandês.",
     desktop_line:
       "Baixe da <a href=\"https://github.com/berthy456/daisy2telmi/releases\">página de versões</a> para Windows, Debian, Ubuntu, macOS ou como AppImage.",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">código fonte</a>',
@@ -465,6 +446,7 @@ export const UI = {
     log_files: "lendo {n} arquivo(s)",
     log_ready: "pronto: {name}",
     log_error: "erro: {message}",
+    log_card_silent: "o capítulo {n} não tem anúncio gravado; seu cartão fica silencioso",
     log_drop_zip: "solte um pacote .zip ou use o botão de pasta",
     log_chapters: "{n} capítulo(s)",
     log_cover_set: "capa escolhida: {w} x {h}",
@@ -500,14 +482,11 @@ export const UI = {
     before_1:
       "Audio blijft op de bronbitsnelheid in plaats van hercodeerd te worden. De Telmi-speler samplet zelf naar 44100 Hz, dus het speelt, maar de kwaliteit blijft waar het DAISY-pakket haar liet.",
     before_2:
-      "Fragmenten worden als hele bestanden genomen. Een pakket dat binnen een bestand knipt, houdt het hele bestand; gebruik het commandoregelhulpmiddel voor exacte knippen.",
+      "Fragmenten worden als hele bestanden genomen. Een pakket dat binnen een bestand knipt, houdt het hele bestand.",
     before_3: "Alleen audioboeken worden verwerkt. Gesynchroniseerde tekst en TTS niet.",
-    before_4: "De scèneafbeeldingen zijn het omslag, of een placeholder met het hoofdstuknummer.",
-    cli_line:
-      "Voor exacte hercodering en knippen gebruik je de <a href=\"https://github.com/berthy456/daisy2telmi\">commandoregelomzetter</a>, verkrijgbaar voor Windows, Debian en macOS.",
-    desktop_title: "De desktop-app kan meer",
+    before_4: "De scèneafbeeldingen zijn het omslag, of een placeholder met het hoofdstuknummer.",    desktop_title: "De desktop-app kan meer",
     desktop_p1:
-      "Een browser-tabblad kan geen spraaksynthesizer laten draaien en diens uitvoer in het pakket schrijven, dus de kaarten blijven hier stil. De desktopomzetter kan ze laten spreken: elke kaart noemt het hoofdstuknummer en kan vragen of het verder gaat, in het Engels, Frans, Chinees, Arabisch, Turks, Duits, Italiaans, Spaans, Portugees of Nederlands. Hij hercodeert audio ook naar Telmis exacte specificatie, knipt fragmenten, en zijn venster is in dezelfde talen te tonen.",
+      "De desktop-app laat de kaarten spreken met elke stem die op de computer is geïnstalleerd, hercodeert audio naar Telmis exacte specificatie, knipt fragmenten binnen een bestand en laat je elk hoofdstuk voor de omzetting beluisteren. Zijn venster is in het Engels, Frans, Chinees, Arabisch, Turks, Duits, Italiaans, Spaans, Portugees en Nederlands te tonen.",
     desktop_line:
       "Haal hem van de <a href=\"https://github.com/berthy456/daisy2telmi/releases\">uitgavenpagina</a> voor Windows, Debian, Ubuntu, macOS of als AppImage.",
     footer_line: 'GPL-3.0-or-later &middot; <a href="https://github.com/berthy456/daisy2telmi">broncode</a>',
@@ -516,6 +495,7 @@ export const UI = {
     log_files: "{n} bestand(en) lezen",
     log_ready: "klaar: {name}",
     log_error: "fout: {message}",
+    log_card_silent: "hoofdstuk {n} heeft geen opgesproken melding; de kaart blijft stil",
     log_drop_zip: "zet een .zip-pakket neer, of gebruik de mapknop",
     log_chapters: "{n} hoofdstuk(ken)",
     log_cover_set: "omslag gekozen: {w} x {h}",
