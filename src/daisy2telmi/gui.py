@@ -548,13 +548,13 @@ class Options:
         grid.grid(sticky="nsew")
         grid.columnconfigure(1, weight=1)
 
-        self.language_box = self._combo(self.language_keys, app.options["language"])
-        self.announce_box = self._combo(self.announce_keys, app.options["announce"])
-        self.engine_box = self._combo(self.engine_keys, app.options["tts"])
-        self.voice_box = self._combo([None], app.options["voice"])
-        self.device_box = self._combo(self.device_keys, app.options["device"])
+        self.language_box = self._combo(grid, self.language_keys, app.options["language"])
+        self.announce_box = self._combo(grid, self.announce_keys, app.options["announce"])
+        self.engine_box = self._combo(grid, self.engine_keys, app.options["tts"])
+        self.voice_box = self._combo(grid, [None], app.options["voice"])
+        self.device_box = self._combo(grid, self.device_keys, app.options["device"])
         self.autoplay_var = tk.BooleanVar(value=bool(app.options["autoplay"]))
-        self.python_box = ttk.Entry(self.top, width=28)
+        self.python_box = ttk.Entry(grid, width=28)
         self.python_box.insert(0, app.options["python"] or "")
 
         clip_row = ttk.Frame(grid)
@@ -563,16 +563,22 @@ class Options:
         self.clip_box.pack(side="left")
         ttk.Button(clip_row, text=app.t("browse_output"), command=self._pick_clip).pack(side="left", padx=(6, 0))
 
+        # The Chatterbox rows only mean something to that engine, so they sit
+        # under their own heading instead of continuing the list.
         self._row(grid, "opt_language", 0, self.language_box)
         self._row(grid, "opt_announce", 1, self.announce_box)
         self._row(grid, "opt_autoplay", 2, ttk.Checkbutton(grid, variable=self.autoplay_var))
         self._row(grid, "opt_engine", 3, self.engine_box)
         self._row(grid, "opt_voice", 4, self.voice_box)
-        self._row(grid, "opt_python", 5, self.python_box)
-        self._row(grid, "opt_device", 6, self.device_box)
-        self._row(grid, "opt_clip", 7, clip_row)
+        self._heading(grid, "opt_section_chatterbox", 5)
+        ttk.Label(grid, text=app.t("opt_chatterbox_hint")).grid(
+            row=6, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
+        self._row(grid, "opt_python", 7, self.python_box)
+        self._row(grid, "opt_device", 8, self.device_box)
+        self._row(grid, "opt_clip", 9, clip_row)
         ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=8, column=0, columnspan=2, sticky="e", pady=(12, 0)
+            row=10, column=0, columnspan=2, sticky="e", pady=(12, 0)
         )
 
         self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
@@ -592,8 +598,8 @@ class Options:
             return f"{key} - {LANGUAGES[key].name}"
         return next((e.label for e in tts.engines() if e.name == key), key)
 
-    def _combo(self, keys: list[str | None], current: str | None) -> ttk.Combobox:
-        box = ttk.Combobox(self.top, values=[self._label_text(k) for k in keys], state="readonly", width=26)
+    def _combo(self, parent: tk.Widget, keys: list[str | None], current: str | None) -> ttk.Combobox:
+        box = ttk.Combobox(parent, values=[self._label_text(k) for k in keys], state="readonly", width=26)
         box.set(self._label_text(current if current in keys else keys[0]))
         return box
 
@@ -607,6 +613,11 @@ class Options:
     def _row(self, grid: ttk.Frame, key: str, row: int, widget: tk.Widget) -> None:
         ttk.Label(grid, text=self.app.t(key)).grid(row=row, column=0, sticky="w", pady=4)
         widget.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=4)
+
+    def _heading(self, grid: ttk.Frame, key: str, row: int) -> None:
+        ttk.Label(grid, text=self.app.t(key), font=("TkDefaultFont", 10, "bold")).grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(14, 2)
+        )
 
     def _fill_voices(self) -> None:
         code = self._chosen(self.language_box, self.language_keys)

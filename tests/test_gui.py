@@ -131,6 +131,15 @@ def test_the_options_page_saves_what_it_shows(app: gui.App, tmp_path, monkeypatc
     assert app._labels["save"].cget("text") == "Enregistrer le zip"
 
 
+def test_every_option_sits_inside_the_page_frame(app: gui.App) -> None:
+    """A box parented to the window instead of its frame is drawn outside the window."""
+    page = gui.Options(app)
+    frames = page.top.winfo_children()
+    assert len(frames) == 1, "the window holds one frame"
+    for box in (page.language_box, page.announce_box, page.engine_box, page.voice_box, page.device_box, page.python_box):
+        assert box.master is frames[0], box
+
+
 def test_the_chatterbox_device_choice_is_saved(app: gui.App, tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     page = gui.Options(app)
