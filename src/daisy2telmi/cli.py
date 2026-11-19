@@ -55,7 +55,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--cover-crop",
         choices=images.CROP_MODES,
-        help="which band of the cover survives its crop to Telmi's three sizes: the middle "
+        help="how the cover is cropped to fit the chosen player's screens: the middle "
         "(default), the top, or the bottom",
     )
     look = parser.add_argument_group("before converting")

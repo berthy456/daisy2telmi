@@ -55,6 +55,14 @@ class App:
         self.options = dict(settings.DEFAULTS, **(options or settings.load()))
         self.pack_var = tk.StringVar()
         self.out_var = tk.StringVar()
+        self._auto_out = ""
+        # Tk's own file dialog draws its list 90 pixels tall, which is three rows
+        # and reads as unscrollable. The dialog's list is a canvas named "canvas"
+        # under a frame named "icons", so the option database can give it room
+        # without touching any other canvas in the app.
+        root.option_add("*icons.canvas.width", "460p", "widgetDefault")
+        root.option_add("*icons.canvas.height", "300p", "widgetDefault")
+        self.pack_var.trace_add("write", self._follow_pack)
         self.cover_var = tk.StringVar()
         self.crop_var = tk.StringVar(value=self.options["cover_crop"])
         self.format_var = tk.StringVar(value=self.options["format"])
@@ -193,24 +201,47 @@ class App:
             clip=self.options["clip"],
         )
 
+    def _follow_pack(self, *_: object) -> None:
+        """The story lands next to the pack it came from.
+
+        Only the folder this put there last time is replaced: an output path the
+        user typed or picked themselves is never overwritten.
+        """
+        pack = self._typed_path(self.pack_var)
+        folder = "" if pack is None else str(pack.parent)
+        if self.out_var.get() in ("", self._auto_out):
+            self._auto_out = folder
+            self.out_var.set(folder)
+
+    def _start_dir(self) -> str:
+        """Where a dialog opens. Tk uses the process's working directory, which for
+        an AppImage started from a file manager is the filesystem root."""
+        pack = self._typed_path(self.pack_var)
+        if pack is not None and pack.parent.is_dir():
+            return str(pack.parent)
+        return str(Path.home())
+
     def _pick_pack_file(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("DAISY packs", "*.zip"), ("all files", "*.*")])
+        path = filedialog.askopenfilename(
+            initialdir=self._start_dir(), filetypes=[("DAISY packs", "*.zip"), ("all files", "*.*")]
+        )
         if path:
             self.pack_var.set(path)
 
     def _pick_pack_dir(self) -> None:
-        path = filedialog.askdirectory()
+        path = filedialog.askdirectory(initialdir=self._start_dir())
         if path:
             self.pack_var.set(path)
 
     def _pick_out_dir(self) -> None:
-        path = filedialog.askdirectory()
+        path = filedialog.askdirectory(initialdir=self._start_dir())
         if path:
             self.out_var.set(path)
 
     def _pick_cover(self) -> None:
         path = filedialog.askopenfilename(
-            filetypes=[("images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("all files", "*.*")]
+            initialdir=self._start_dir(),
+            filetypes=[("images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("all files", "*.*")],
         )
         if path:
             self.cover_var.set(path)
@@ -705,7 +736,10 @@ class Options:
         self.voice_box.set(self._label_text(None))
 
     def _pick_clip(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("audio", "*.wav *.mp3 *.flac *.m4a"), ("all files", "*.*")])
+        path = filedialog.askopenfilename(
+            initialdir=self.app._start_dir(),
+            filetypes=[("audio", "*.wav *.mp3 *.flac *.m4a"), ("all files", "*.*")],
+        )
         if path:
             self.clip_box.delete(0, "end")
             self.clip_box.insert(0, path)

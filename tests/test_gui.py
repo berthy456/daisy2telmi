@@ -33,6 +33,39 @@ def test_the_window_builds(app: gui.App) -> None:
     assert app.save_button.instate(["!disabled"])
 
 
+def test_the_output_folder_follows_the_pack(app: gui.App, tmp_path: Path) -> None:
+    app.pack_var.set(str(tmp_path / "Wesh.zip"))
+    assert app.out_var.get() == str(tmp_path)
+
+    app.pack_var.set(str(tmp_path / "Rachel" / "pack.zip"))
+    assert app.out_var.get() == str(tmp_path / "Rachel")
+
+
+def test_an_output_folder_the_user_chose_is_left_alone(app: gui.App, tmp_path: Path) -> None:
+    app.out_var.set(str(tmp_path / "keep"))
+    app.pack_var.set(str(tmp_path / "Wesh.zip"))
+    assert app.out_var.get() == str(tmp_path / "keep")
+
+
+def test_a_dialog_opens_where_the_pack_is(app: gui.App, tmp_path: Path, monkeypatch) -> None:
+    opened: list[dict] = []
+    monkeypatch.setattr(gui.filedialog, "askopenfilename", lambda **kw: opened.append(kw) or "")
+
+    app._pick_pack_file()
+    assert opened[0]["initialdir"] == str(Path.home())
+
+    app.pack_var.set(str(tmp_path / "Wesh.zip"))
+    app._pick_pack_file()
+    assert opened[1]["initialdir"] == str(tmp_path)
+
+
+def test_the_file_dialog_list_is_given_room(app: gui.App) -> None:
+    """Tk draws that list 90 pixels tall: three rows, which reads as unscrollable."""
+    icons = tk.Frame(app.root, name="icons")
+    listing = tk.Canvas(icons, name="canvas")
+    assert listing.winfo_reqheight() > 200
+
+
 def test_the_player_is_chosen_before_the_cover(app: gui.App) -> None:
     """The player decides the size of every picture, so it is asked before the cover."""
     player_row = int(app._labels["fmt_telmi"].master.grid_info()["row"])
@@ -62,6 +95,7 @@ def test_a_missing_pack_is_refused_before_any_work(app: gui.App) -> None:
 def test_an_empty_box_is_not_read_as_the_working_directory(app: gui.App, tmp_path) -> None:
     (tmp_path / "pack.zip").write_bytes(b"PK")
     app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set("")  # the pack would otherwise have filled it in
     app._start()
     app._drain()
     assert "choose an output folder first" in app.log_view.get("1.0", "end")
@@ -114,7 +148,7 @@ def test_the_window_labels_follow_the_language(app: gui.App) -> None:
     app.language_var.set("fr")
     app._relabel()
     assert app._labels["save"].cget("text") == "Enregistrer le zip"
-    assert app._labels["overwrite"].cget("text").startswith("Ecraser")
+    assert app._labels["overwrite"].cget("text").startswith("Écraser")
 
 
 def test_the_options_page_saves_what_it_shows(app: gui.App, tmp_path, monkeypatch) -> None:
