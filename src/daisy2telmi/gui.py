@@ -510,6 +510,7 @@ class Options:
         self.language_keys = list(LANGUAGES)
         self.announce_keys = list(ANNOUNCE_MODES)
         self.engine_keys = ["auto"] + [engine.name for engine in tts.engines()] + ["off"]
+        self.device_keys = list(tts.DEVICES)
 
         grid = ttk.Frame(self.top, padding=12)
         grid.grid(sticky="nsew")
@@ -519,6 +520,7 @@ class Options:
         self.announce_box = self._combo(self.announce_keys, app.options["announce"])
         self.engine_box = self._combo(self.engine_keys, app.options["tts"])
         self.voice_box = self._combo([None], app.options["voice"])
+        self.device_box = self._combo(self.device_keys, app.options["device"])
         self.autoplay_var = tk.BooleanVar(value=bool(app.options["autoplay"]))
         self.python_box = ttk.Entry(self.top, width=28)
         self.python_box.insert(0, app.options["python"] or "")
@@ -535,9 +537,10 @@ class Options:
         self._row(grid, "opt_engine", 3, self.engine_box)
         self._row(grid, "opt_voice", 4, self.voice_box)
         self._row(grid, "opt_python", 5, self.python_box)
-        self._row(grid, "opt_clip", 6, clip_row)
+        self._row(grid, "opt_device", 6, self.device_box)
+        self._row(grid, "opt_clip", 7, clip_row)
         ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=7, column=0, columnspan=2, sticky="e", pady=(12, 0)
+            row=8, column=0, columnspan=2, sticky="e", pady=(12, 0)
         )
 
         self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
@@ -599,6 +602,7 @@ class Options:
                 "voice": self._chosen(self.voice_box, self.voice_keys),
                 "python": self.python_box.get().strip() or None,
                 "clip": self.clip_box.get().strip() or None,
+                "device": self._chosen(self.device_box, self.device_keys),
             }
         )
         self.app.language_var.set(self.app.options["language"])

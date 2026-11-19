@@ -30,6 +30,27 @@ def _write_wav(path: str, wav, sample_rate: int) -> None:
         handle.writeframes((np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes())
 
 
+def _device(requested: str | None, torch) -> str:
+    """Which device to run on.
+
+    Chatterbox leaves the GPU alone unless it is asked for, so the user can force
+    one. A forced device that is not there stops the run instead of falling back:
+    asking for one is a deliberate choice, and a silent fallback would hide the
+    reason the conversion is slow.
+    """
+    cuda = torch.cuda.is_available()
+    mps = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+    if requested and requested != "auto":
+        if requested == "cuda" and not cuda:
+            raise SystemExit("no CUDA device in that Python: choose the CPU, or auto")
+        if requested == "mps" and not mps:
+            raise SystemExit("no Apple GPU in that Python: choose the CPU, or auto")
+        if requested == "cpu":
+            return "cpu"
+        return requested
+    return "cuda" if cuda else "mps" if mps else "cpu"
+
+
 def speak(manifest: dict) -> None:
     import perth
     import torch
@@ -45,15 +66,8 @@ def speak(manifest: dict) -> None:
         )
         perth.PerthImplicitWatermarker = perth.DummyWatermarker
 
-    device = manifest.get("device")
-    if not device:
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
-
+    device = _device(manifest.get("device"), torch)
+    print(f"chatterbox speaking on {device}")
     model = ChatterboxMultilingualTTS.from_pretrained(device=device)
     extra = {"audio_prompt_path": manifest["clip"]} if manifest.get("clip") else {}
     for phrase, out in zip(manifest["phrases"], manifest["outs"]):

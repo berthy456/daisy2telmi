@@ -102,6 +102,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="interpreter --tts chatterbox runs in, for a Python where `pip install chatterbox-tts` was done",
     )
     speech.add_argument(
+        "--tts-device",
+        choices=tts.DEVICES,
+        help="what --tts chatterbox runs on: auto (default) takes the fastest device, "
+        "mps the Apple GPU, cuda an Nvidia one; Chatterbox otherwise stays on the CPU",
+    )
+    speech.add_argument(
         "--tts-command",
         help="command template for --tts command, using {text}, {out} and {lang}; "
         "for example 'my-tts {text} {out}' with any Chatterbox-style model behind it",
@@ -131,6 +137,7 @@ def announce_options(args: argparse.Namespace) -> Announce:
         command=args.tts_command or saved["command"],
         python=args.tts_python or saved["python"],
         clip=args.tts_clip or saved["clip"],
+        device=args.tts_device or saved["device"],
     )
 
 

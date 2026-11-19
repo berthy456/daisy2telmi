@@ -124,6 +124,17 @@ def test_the_options_page_saves_what_it_shows(app: gui.App, tmp_path, monkeypatc
     assert app._labels["convert"].cget("text") == "Convertir"
 
 
+def test_the_chatterbox_device_choice_is_saved(app: gui.App, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    page = gui.Options(app)
+    page.device_box.set("mps")
+    page._close()
+
+    assert app.options["device"] == "mps"
+    saved = (tmp_path / "daisy2telmi" / "config.json").read_text(encoding="utf-8")
+    assert '"device": "mps"' in saved
+
+
 def test_the_voice_list_follows_the_engine_and_language(app: gui.App) -> None:
     page = gui.Options(app)
     page.language_box.set("fr - Francais")

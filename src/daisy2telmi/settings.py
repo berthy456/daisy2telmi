@@ -27,6 +27,7 @@ DEFAULTS: dict = {
     "command": None,
     "python": None,
     "clip": None,
+    "device": "auto",
 }
 
 

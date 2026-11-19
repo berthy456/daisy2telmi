@@ -64,6 +64,7 @@ class Announce:
     command: str | None = None
     python: str | None = None
     clip: str | None = None
+    device: str = tts.AUTO
 
     def phrase(self, number: int) -> str | None:
         if self.mode == "off":
@@ -206,6 +207,7 @@ def build_card_audio(
             command=announce.command,
             python=announce.python,
             clip=announce.clip,
+            device=announce.device,
         )
     except (tts.TtsError, audio.AudioError) as exc:
         log.warning("chapter cards stay silent: %s", exc)

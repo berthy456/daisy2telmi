@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from daisy2telmi import audio, tts
+from daisy2telmi import audio, chatterbox_speak, cli, settings, tts
 from daisy2telmi.i18n import LANGUAGES
 
 requires_espeak = pytest.mark.skipif(
@@ -135,6 +135,7 @@ def test_chatterbox_loads_its_model_once_for_the_whole_batch(tmp_path, monkeypat
                 handle.setnchannels(1)
                 handle.setsampwidth(2)
                 handle.writeframes(b"\x00\x20" * 8000)
+        return subprocess.CompletedProcess(argv, 0, "chatterbox speaking on mps\n", "")
 
     monkeypatch.setattr(tts, "_check", fake_check)
     monkeypatch.setattr(tts, "_python", lambda python=None: "/usr/bin/python3")
@@ -142,16 +143,90 @@ def test_chatterbox_loads_its_model_once_for_the_whole_batch(tmp_path, monkeypat
 
     dests = [tmp_path / f"c{k}.mp3" for k in range(3)]
     tts.synthesize_all(
-        ["un", "deux", "trois"], "fr", dests, engine=tts.CHATTERBOX, python="/opt/models/bin/python", clip="ref.wav"
+        ["un", "deux", "trois"],
+        "fr",
+        dests,
+        engine=tts.CHATTERBOX,
+        python="/opt/models/bin/python",
+        clip="ref.wav",
+        device="mps",
     )
 
     assert len(manifests) == 1, "one interpreter process should speak every card"
     assert manifests[0]["phrases"] == ["un", "deux", "trois"]
     assert manifests[0]["lang"] == "fr"
     assert manifests[0]["clip"] == "ref.wav"
+    assert manifests[0]["device"] == "mps"
     assert len(manifests[0]["outs"]) == 3
     for dest in dests:
         assert dest.is_file() and dest.stat().st_size > 1000
+
+
+@requires_ffmpeg
+def test_the_device_is_left_to_the_model_when_not_chosen(tmp_path, monkeypatch) -> None:
+    manifests: list[dict] = []
+
+    def fake_check(argv, label, env=None):
+        manifest = json.loads(Path(argv[3]).read_text(encoding="utf-8"))
+        manifests.append(manifest)
+        for out in manifest["outs"]:
+            with wave.open(out, "wb") as handle:
+                handle.setframerate(8000)
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.writeframes(b"\x00\x20" * 8000)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(tts, "_check", fake_check)
+    monkeypatch.setattr(tts, "_python", lambda python=None: "/usr/bin/python3")
+    monkeypatch.setattr(tts, "_has_chatterbox", lambda exe: True)
+    tts.synthesize_all(["un"], "fr", [tmp_path / "c0.mp3"], engine=tts.CHATTERBOX)
+    assert manifests[0]["device"] == "auto"
+
+
+def test_a_forced_chatterbox_device_is_refused_when_the_machine_lacks_it() -> None:
+    class NoGpu:
+        class cuda:
+            @staticmethod
+            def is_available():
+                return False
+
+        class backends:
+            mps = None
+
+    assert chatterbox_speak._device("cpu", NoGpu) == "cpu"
+    with pytest.raises(SystemExit, match="no CUDA device"):
+        chatterbox_speak._device("cuda", NoGpu)
+    with pytest.raises(SystemExit, match="no Apple GPU"):
+        chatterbox_speak._device("mps", NoGpu)
+    assert chatterbox_speak._device("auto", NoGpu) == "cpu"
+
+
+def test_the_device_flag_overrides_the_saved_choice(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    settings.save({**settings.DEFAULTS, "device": "cpu"})
+
+    saved = cli.announce_options(cli._parse_args(["pack.zip", "out"]))
+    forced = cli.announce_options(cli._parse_args(["pack.zip", "out", "--tts-device", "mps"]))
+    assert saved.device == "cpu", "the saved choice is used when no flag is given"
+    assert forced.device == "mps"
+
+
+def test_auto_takes_the_apple_gpu_when_there_is_one() -> None:
+    class Mps:
+        class cuda:
+            @staticmethod
+            def is_available():
+                return False
+
+        class backends:
+            class mps:
+                @staticmethod
+                def is_available():
+                    return True
+
+    assert chatterbox_speak._device(None, Mps) == "mps"
+    assert chatterbox_speak._device("mps", Mps) == "mps"
 
 
 def test_every_phrase_needs_an_output_file() -> None:

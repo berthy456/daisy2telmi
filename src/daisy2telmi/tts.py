@@ -34,6 +34,10 @@ CHATTERBOX = "chatterbox"
 
 ENGINES = (AUTO, ESPEAK, SAY, SAPI, COMMAND, CHATTERBOX, OFF)
 
+# What Chatterbox runs on. It picks the CPU on its own even where a GPU is
+# there, so the user can force one; `auto` takes the fastest device found.
+DEVICES = (AUTO, "cpu", "mps", "cuda")
+
 SPEAKING_RATE = 150  # words per minute, espeak-ng's unit
 
 
@@ -246,12 +250,13 @@ def _render(engine: str, phrase: str, lang: Language, voice: str | None, command
         raise TtsError(f"cannot speak with engine {engine!r}")
 
 
-def _check(argv: list[str], label: str, env: dict[str, str] | None = None) -> None:
+def _check(argv: list[str], label: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     log.debug("running: %s", " ".join(argv))
     result = subprocess.run(argv, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         raise TtsError(f"{label} failed: {detail[-1] if detail else 'exit ' + str(result.returncode)}")
+    return result
 
 
 def _to_spec(raw: Path, dest: Path, engine: str, phrase: str) -> None:
@@ -270,7 +275,12 @@ def _speak_one(phrase: str, lang: Language, dest: Path, engine: str, voice: str 
 
 
 def _speak_batch(
-    phrases: list[str], lang: Language, dests: list[Path], clip: str | None, python: str | None
+    phrases: list[str],
+    lang: Language,
+    dests: list[Path],
+    clip: str | None,
+    python: str | None,
+    device: str = AUTO,
 ) -> None:
     """One Chatterbox process for the whole batch: loading the model costs more
     than speaking a chapter number, and it would otherwise happen once per card."""
@@ -281,10 +291,23 @@ def _speak_batch(
         raw = [folder / f"speech{k}.wav" for k in range(len(phrases))]
         manifest = folder / "manifest.json"
         manifest.write_text(
-            json.dumps({"phrases": phrases, "outs": [str(path) for path in raw], "lang": lang.code, "clip": clip}),
+            json.dumps(
+                {
+                    "phrases": phrases,
+                    "outs": [str(path) for path in raw],
+                    "lang": lang.code,
+                    "clip": clip,
+                    "device": device,
+                }
+            ),
             encoding="utf-8",
         )
-        _check([exe, "-I", str(_speak_script()), str(manifest)], "chatterbox")
+        result = _check([exe, "-I", str(_speak_script()), str(manifest)], "chatterbox")
+        # The script reports the device it settled on, so a run that silently
+        # stayed on the CPU is visible in the log.
+        for line in result.stdout.splitlines():
+            if line.startswith("chatterbox "):
+                log.info(line)
         for phrase, source, dest in zip(phrases, raw, dests):
             _to_spec(source, dest, CHATTERBOX, phrase)
 
@@ -298,6 +321,7 @@ def synthesize_all(
     command: str | None = None,
     python: str | None = None,
     clip: str | None = None,
+    device: str = AUTO,
 ) -> None:
     """Speak every phrase into `dests`, one file each."""
     if not phrases:
@@ -309,7 +333,7 @@ def synthesize_all(
     if chosen == OFF:
         raise TtsError("speech is switched off")
     if chosen == CHATTERBOX:
-        _speak_batch(list(phrases), lang, list(dests), clip, python)
+        _speak_batch(list(phrases), lang, list(dests), clip, python, device)
         return
     for phrase, dest in zip(phrases, dests):
         _speak_one(phrase, lang, dest, chosen, voice, command)
