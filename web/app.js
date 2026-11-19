@@ -1,4 +1,4 @@
-import { loadCoverFile, loadCoverUrl, previewDataUrl, searchUrl } from "./cover.js";
+import { cropPreviews, loadCoverFile, loadCoverUrl, previewDataUrl, searchUrl } from "./cover.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
 import { buildStudioZip } from "./lunii.js";
@@ -21,6 +21,8 @@ const coverClear = document.getElementById("cover-clear");
 const coverPreview = document.getElementById("cover-preview");
 const coverSearch = document.getElementById("cover-search");
 const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
+const cropRow = document.getElementById("crop-row");
+const cropInputs = [...document.querySelectorAll('input[name="crop"]')];
 const luniiBox = document.getElementById("lunii");
 const luniiLink = document.getElementById("download-lunii");
 
@@ -28,6 +30,7 @@ const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffe
 const STORED_LANGUAGE = "daisy2telmi.language";
 const STORED_CUT = "daisy2telmi.cut";
 const STORED_LUNII = "daisy2telmi.lunii";
+const STORED_CROP = "daisy2telmi.crop";
 // The summary lists the parts it starts; a book cut to the sentence level has hundreds.
 const LISTED_PARTS = 30;
 
@@ -35,6 +38,8 @@ let source = null;
 let cover = null;
 let lang = "en";
 let cut = "chapter";
+let crop = "center";
+let cropUrls = [];
 
 const t = (key, values) => text(lang, key, values);
 
@@ -91,6 +96,32 @@ function startLunii() {
   luniiBox.addEventListener("change", () => remember(STORED_LUNII, luniiBox.checked ? "1" : "0"));
 }
 
+function startCrop() {
+  const stored = saved(STORED_CROP);
+  crop = cropInputs.some((input) => input.value === stored) ? stored : "center";
+  for (const input of cropInputs) {
+    input.checked = input.value === crop;
+    input.addEventListener("change", () => {
+      crop = input.value;
+      remember(STORED_CROP, crop);
+    });
+  }
+}
+
+/** Each crop band drawn small under the cover picker: which band a tall cover
+ * loses is not something a word can tell you. */
+async function showCrops(bitmap) {
+  const previews = await cropPreviews(bitmap);
+  for (const url of cropUrls) URL.revokeObjectURL(url);
+  cropUrls = [];
+  for (const input of cropInputs) {
+    const url = URL.createObjectURL(new Blob([previews[input.value]], { type: "image/png" }));
+    cropUrls.push(url);
+    input.closest("label").querySelector("img").src = url;
+  }
+  cropRow.hidden = false;
+}
+
 function setCover(bitmap) {
   if (cover) cover.close();
   cover = bitmap;
@@ -98,6 +129,9 @@ function setCover(bitmap) {
   coverPreview.hidden = false;
   coverClear.hidden = false;
   log(t("log_cover_set", { w: bitmap.width, h: bitmap.height }));
+  showCrops(bitmap).catch(() => {
+    cropRow.hidden = true;
+  });
 }
 
 function clearCover() {
@@ -107,6 +141,9 @@ function clearCover() {
   coverPreview.removeAttribute("src");
   coverClear.hidden = true;
   coverUrl.value = "";
+  cropRow.hidden = true;
+  for (const url of cropUrls) URL.revokeObjectURL(url);
+  cropUrls = [];
 }
 
 function showSummary(story) {
@@ -141,6 +178,7 @@ async function convert() {
       },
       {
         cover,
+        crop,
         cut,
         t: (key) => t(key),
         cardLabel: (number, total, worded) => t(worded ? "card_label" : "card_number", { n: number, total }),
@@ -249,4 +287,5 @@ convertButton.addEventListener("click", convert);
 
 startLanguage();
 startCut();
+startCrop();
 startLunii();

@@ -238,22 +238,39 @@ def _run(args: list[str], description: str) -> None:
         raise ImageError(f"{description}: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'ffmpeg failed'}")
 
 
-def _crop(ffmpeg: str, source: Path, size: tuple[int, int], dest: Path) -> None:
+# A tall cover loses its title to a centre-crop, so which band survives is the
+# user's call.
+CROP_MODES = ("top", "center", "bottom")
+
+# `ih-oh`, not the shorter `ih-h`: ffmpeg 9 dropped the crop filter's w/h aliases.
+_CROP_OFFSET = {"top": ":0:0", "center": "", "bottom": ":0:ih-oh"}
+
+
+def _crop(ffmpeg: str, source: Path, size: tuple[int, int], dest: Path, mode: str = "center") -> None:
     width, height = size
+    chain = (
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height}{_CROP_OFFSET[mode]}"
+    )
     _run(
-        [
-            ffmpeg,
-            "-y",
-            "-i",
-            str(source),
-            "-vf",
-            f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
-            "-frames:v",
-            "1",
-            str(dest),
-        ],
+        [ffmpeg, "-y", "-i", str(source), "-vf", chain, "-frames:v", "1", str(dest)],
         f"could not crop {source.name} to {width}x{height}",
     )
+
+
+PREVIEW_SIZE = (160, 120)
+
+
+def crop_previews(source: Path, size: tuple[int, int] = PREVIEW_SIZE) -> dict[str, bytes]:
+    """Every crop band of `source`, small, so the choice can be made by eye."""
+    ffmpeg = require_ffmpeg()
+    previews: dict[str, bytes] = {}
+    with tempfile.TemporaryDirectory(prefix="daisy2telmi-") as tmp:
+        out = Path(tmp) / "preview.png"
+        for mode in CROP_MODES:
+            _crop(ffmpeg, source, size, out, mode)
+            previews[mode] = out.read_bytes()
+    return previews
 
 
 def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path, x: int, y: int) -> None:
@@ -275,7 +292,9 @@ def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path, x: int, y: int)
     )
 
 
-def write_cover(source: Path, out_dir: Path, labels: Sequence[str], texts: Sequence[str]) -> None:
+def write_cover(
+    source: Path, out_dir: Path, labels: Sequence[str], texts: Sequence[str], crop: str = "center"
+) -> None:
     """`title.png`, `cover.png` and one card per part, all from `source`.
 
     A card is a plain background with a small thumbnail of the cover, not the
@@ -293,9 +312,9 @@ def write_cover(source: Path, out_dir: Path, labels: Sequence[str], texts: Seque
         thumb = scratch / "thumb.png"
         plain = scratch / "plain.png"
         card_base = scratch / "card.png"
-        _crop(ffmpeg, source, IMAGE_SIZE, base)
-        _crop(ffmpeg, source, COVER_SIZE, square)
-        _crop(ffmpeg, source, CARD_THUMB, thumb)
+        _crop(ffmpeg, source, IMAGE_SIZE, base, crop)
+        _crop(ffmpeg, source, COVER_SIZE, square, crop)
+        _crop(ffmpeg, source, CARD_THUMB, thumb, crop)
         plain.write_bytes(flat_png())
         _overlay(ffmpeg, plain, thumb, card_base, MARGIN, MARGIN)
 

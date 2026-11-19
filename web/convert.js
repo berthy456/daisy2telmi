@@ -33,6 +33,7 @@ function firstSeconds(segments, bytesOf, seconds) {
  * onProgress(label, done, total): optional progress callback.
  * options.cut: "chapter", "paragraph" or "sentence" — where to cut the book.
  * options.cover: an ImageBitmap to crop into every scene image.
+ * options.crop: "top", "center" or "bottom" — the band of the cover to keep.
  * options.cardLabel(number, total, worded): the words drawn on a card.
  * options.cardAudio(number): bytes for the card to say, or null to leave it silent.
  */
@@ -49,6 +50,7 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
   const total = book.chapters.length + 3;
   const partCount = book.chapters.length;
   const cover = options.cover ?? null;
+  const crop = options.crop ?? "center";
   const cardLabel = options.cardLabel ?? ((number, count) => `Chapter ${number}/${count}`);
   const say = options.t ?? ((key) => key);
   const spoken = options.cardAudio ?? (async () => null);
@@ -65,7 +67,7 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
     files.push({ name: `${dirName}/audios/s${k}.mp3`, data: audio });
     files.push({
       name: `${dirName}/images/m${k}.png`,
-      data: await cardPng(cardLabel(k + 1, partCount, cut === "chapter"), chapter.text, cover),
+      data: await cardPng(cardLabel(k + 1, partCount, cut === "chapter"), chapter.text, cover, crop),
     });
 
     let card = null;
@@ -94,11 +96,11 @@ export async function buildStoryFiles(entries, silentMp3, onProgress = () => {},
 
   files.push({
     name: `${dirName}/title.png`,
-    data: cover ? await coverPng(cover, ...IMAGE_SIZE) : await placeholderPng(...IMAGE_SIZE),
+    data: cover ? await coverPng(cover, ...IMAGE_SIZE, crop) : await placeholderPng(...IMAGE_SIZE),
   });
   files.push({
     name: `${dirName}/cover.png`,
-    data: cover ? await coverPng(cover, ...COVER_SIZE) : await placeholderPng(...COVER_SIZE),
+    data: cover ? await coverPng(cover, ...COVER_SIZE, crop) : await placeholderPng(...COVER_SIZE),
   });
   step(say("prog_title_images"));
 

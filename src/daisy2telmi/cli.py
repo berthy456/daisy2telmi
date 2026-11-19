@@ -46,6 +46,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         help="draw every chapter card over this picture instead of the placeholder",
     )
+    parser.add_argument(
+        "--cover-crop",
+        choices=images.CROP_MODES,
+        help="which band of the cover survives its crop to Telmi's three sizes: the middle "
+        "(default), the top, or the bottom",
+    )
     look = parser.add_argument_group("before converting")
     look.add_argument("--list", action="store_true", help="print the pack's chapters and stop")
     look.add_argument(
@@ -126,6 +132,11 @@ def cut_level(args: argparse.Namespace) -> str:
     return args.cut or settings.load()["cut"]
 
 
+def cover_crop(args: argparse.Namespace) -> str:
+    """Saved crop choice, overridden by --cover-crop."""
+    return args.cover_crop or settings.load()["cover_crop"]
+
+
 def also_lunii(args: argparse.Namespace) -> bool:
     """Saved Lunii option, overridden by --lunii."""
     return bool(args.lunii or settings.load()["lunii"])
@@ -192,6 +203,7 @@ def convert(
     drop: str | None = None,
     cut: str = "chapter",
     lunii: bool = False,
+    crop: str = "center",
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     try:
@@ -222,7 +234,7 @@ def convert(
                 log.error("%s is not empty; pass --force to overwrite", target)
                 return 2
             target.mkdir(parents=True, exist_ok=True)
-            report = build_story(book, target, announce, cover, cut)
+            report = build_story(book, target, announce, cover, cut, crop)
             zip_path = write_story_zip(target, target.parent)
             studio_path = write_studio_zip(target) if lunii else None
     except ChapterError as exc:
@@ -275,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         args.drop,
         cut_level(args),
         also_lunii(args),
+        cover_crop(args),
     )
 
 

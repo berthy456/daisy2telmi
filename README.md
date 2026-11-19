@@ -65,11 +65,13 @@ DAISY 2.02 audio packs carry no cover, so the user supplies one:
 daisy2telmi --cover cover.jpg gon-ruby-mp3.zip stories
 ```
 
-ffmpeg centre-crops the picture to `640x480` for `title.png` and for every chapter card, and to `512x512` for `cover.png`. Each card gets its number drawn across the middle in white with a black border — `CHAPTER 2/23`, in the `--language` of the story — so the listener sees which chapter of how many is playing. Without `--cover` the images are the placeholders described under [Output](#output).
+ffmpeg crops the picture to `640x480` for `title.png` and for every chapter card, and to `512x512` for `cover.png`. Each card gets its number drawn across the middle in white with a black border — `CHAPTER 2/23`, in the `--language` of the story — so the listener sees which chapter of how many is playing. Without `--cover` the images are the placeholders described under [Output](#output).
+
+`--cover-crop top|center|bottom` says which band of the picture survives those three different ratios; the middle is the default, and a tall cover loses its title there.
 
 The number is drawn by the converter rather than by ffmpeg: Homebrew's ffmpeg has no `drawtext`, so `src/daisy2telmi/images.py` carries a 5x7 bitmap font and ffmpeg only composites the result. The font is Latin, so Chinese and Arabic cards show `2/23` alone; the spoken card still says the word.
 
-The GUI has the same field below the output folder. The web page takes a cover from a file, from a link, or from a Google image search opened for the pack's title.
+The GUI has the same field below the output folder. The web page takes a cover from a file, from a link, or from a Google image search opened for the pack's title. Both then show the three bands side by side, drawn from the cover you picked, and you choose by eye.
 
 ### Listening before converting
 

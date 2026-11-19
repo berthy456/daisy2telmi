@@ -2,6 +2,9 @@
 // which lines a card asks for and that every file has bytes, not about the pixels.
 // The real drawing is checked in a browser.
 
+// Every drawImage the page asks for, so a test can check where a crop lands.
+export const DRAWS = [];
+
 export class StubCanvas {
   constructor(width, height) {
     this.width = width;
@@ -13,7 +16,7 @@ export class StubCanvas {
     const card = this;
     return {
       fillRect: () => {},
-      drawImage: () => {},
+      drawImage: (...args) => DRAWS.push({ width: card.width, height: card.height, args }),
       fillText: (line, x, y) => card.text.push([line, x, y]),
       strokeText: () => {},
       measureText: (line) => ({ width: [...line].length * 10 }),

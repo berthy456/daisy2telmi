@@ -122,3 +122,73 @@ def test_write_cover_reports_an_image_ffmpeg_cannot_read(tmp_path: Path) -> None
     broken.write_bytes(b"not a png")
     with pytest.raises(images.ImageError, match="could not crop"):
         images.write_cover(broken, tmp_path / "story", [images.card_label("en", 1, 1)], [""])
+
+
+BANDS = {"top": "red", "center": "green", "bottom": "blue"}
+
+
+def _tall_cover(tmp_path: Path) -> Path:
+    """Red over green over blue, 300x900: a crop's band is then its colour."""
+    source = tmp_path / "bands.png"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=red:s=300x300",
+            "-f", "lavfi", "-i", "color=lime:s=300x300",
+            "-f", "lavfi", "-i", "color=blue:s=300x300",
+            "-filter_complex", "vstack=inputs=3", "-frames:v", "1", str(source),
+        ],
+        check=True,
+    )
+    return source
+
+
+def _colour(png: Path) -> tuple[int, int, int]:
+    result = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(png),
+         "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    return struct.unpack("BBB", result.stdout[:3])
+
+
+def _band(png: Path) -> str:
+    """The channel that dominates a picture: ffmpeg moves a flat colour by a
+    couple of units, so the loudest channel is what a crop can be checked on."""
+    return max(zip(_colour(png), ("red", "green", "blue")))[1]
+
+
+@NO_FFMPEG
+def test_each_crop_keeps_the_band_it_names(tmp_path: Path) -> None:
+    source = _tall_cover(tmp_path)
+    for mode, band in BANDS.items():
+        out = tmp_path / f"{mode}.png"
+        images._crop("ffmpeg", source, images.IMAGE_SIZE, out, mode)
+        assert _band(out) == band, mode
+
+
+@NO_FFMPEG
+def test_the_crop_choice_reaches_every_image_write_cover_draws(tmp_path: Path) -> None:
+    source = _tall_cover(tmp_path)
+    high = tmp_path / "high"
+    low = tmp_path / "low"
+    images.write_cover(source, high, ["1/1"], [""], "top")
+    images.write_cover(source, low, ["1/1"], [""], "bottom")
+    for name in (images.TITLE_IMAGE, images.COVER_IMAGE):
+        assert _band(high / name) == BANDS["top"], name
+        assert _band(low / name) == BANDS["bottom"], name
+    # The card's thumbnail follows the same band, so it is the choice that changes it.
+    assert (high / "images/m0.png").read_bytes() != (low / "images/m0.png").read_bytes()
+
+
+@NO_FFMPEG
+def test_crop_previews_shows_every_band_small(tmp_path: Path) -> None:
+    previews = images.crop_previews(_tall_cover(tmp_path))
+    assert list(previews) == list(images.CROP_MODES)
+    for mode, png in previews.items():
+        assert png_header(png)[:2] == images.PREVIEW_SIZE, mode
+    saved = tmp_path / "preview.png"
+    for mode, png in previews.items():
+        saved.write_bytes(png)
+        assert _band(saved) == BANDS[mode], mode

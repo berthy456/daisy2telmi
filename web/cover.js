@@ -76,12 +76,27 @@ export function previewDataUrl(cover, width = 160) {
   return canvas.toDataURL("image/png");
 }
 
-/** The cover, centre-cropped into the box at (left, top). */
-function drawCover(ctx, cover, left, top, width, height) {
+export const CROP_MODES = ["top", "center", "bottom"];
+
+/** The cover, cropped into the box at (left, top). */
+function drawCover(ctx, cover, left, top, width, height, crop = "center") {
   const scale = Math.max(width / cover.width, height / cover.height);
   const drawnWidth = cover.width * scale;
   const drawnHeight = cover.height * scale;
-  ctx.drawImage(cover, left + (width - drawnWidth) / 2, top + (height - drawnHeight) / 2, drawnWidth, drawnHeight);
+  const offset = crop === "top" ? 0 : crop === "bottom" ? height - drawnHeight : (height - drawnHeight) / 2;
+  ctx.drawImage(cover, left + (width - drawnWidth) / 2, top + offset, drawnWidth, drawnHeight);
+}
+
+/** Each crop band, small, as PNG bytes: what the page shows under the cover picker. */
+export async function cropPreviews(cover, width = 160) {
+  const height = Math.round((width * IMAGE_SIZE[1]) / IMAGE_SIZE[0]);
+  const previews = {};
+  for (const mode of CROP_MODES) {
+    const canvas = surface(width, height);
+    drawCover(canvas.getContext("2d"), cover, 0, 0, width, height, mode);
+    previews[mode] = await toPng(canvas);
+  }
+  return previews;
 }
 
 /**
@@ -130,7 +145,7 @@ export function cardWords(ctx, text, width) {
  * A book cut to the sentence level has hundreds of cards, so a card keeps a small
  * thumbnail rather than the whole cover: that is what keeps the zip importable.
  */
-export async function cardPng(label, text, cover = null, width = IMAGE_SIZE[0], height = IMAGE_SIZE[1]) {
+export async function cardPng(label, text, cover = null, crop = "center", width = IMAGE_SIZE[0], height = IMAGE_SIZE[1]) {
   const canvas = surface(width, height);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = BACKGROUND;
@@ -138,7 +153,7 @@ export async function cardPng(label, text, cover = null, width = IMAGE_SIZE[0], 
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
   ctx.textBaseline = "top";
-  if (cover) drawCover(ctx, cover, CARD_MARGIN, CARD_MARGIN, ...CARD_THUMB);
+  if (cover) drawCover(ctx, cover, CARD_MARGIN, CARD_MARGIN, ...CARD_THUMB, crop);
 
   ctx.textAlign = "right";
   ctx.font = `bold ${Math.round(height / 11)}px system-ui, sans-serif`;
@@ -161,23 +176,9 @@ export async function cardPng(label, text, cover = null, width = IMAGE_SIZE[0], 
   return toPng(canvas);
 }
 
-/** The cover, cropped to width x height, with `label` drawn across the middle. */
-export async function coverPng(cover, width, height, label = "") {
+/** The cover, cropped to width x height. */
+export async function coverPng(cover, width, height, crop = "center") {
   const canvas = surface(width, height);
-  const ctx = canvas.getContext("2d");
-  drawCover(ctx, cover, 0, 0, width, height);
-
-  if (label) {
-    ctx.font = `bold ${Math.round(height / 7)}px system-ui, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.lineJoin = "round";
-    ctx.miterLimit = 2;
-    ctx.lineWidth = Math.max(6, Math.round(height / 40));
-    ctx.strokeStyle = "#000";
-    ctx.strokeText(label, width / 2, height / 2);
-    ctx.fillStyle = "#fff";
-    ctx.fillText(label, width / 2, height / 2);
-  }
+  drawCover(canvas.getContext("2d"), cover, 0, 0, width, height, crop);
   return toPng(canvas);
 }

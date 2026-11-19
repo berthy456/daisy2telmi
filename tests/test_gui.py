@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import shutil
 from pathlib import Path
 
 import pytest
 
 tk = pytest.importorskip("tkinter")
 
-from daisy2telmi import gui
+from daisy2telmi import gui, images
 from daisy2telmi.detector import DaisyPackError
 from daisy2telmi.extractor import AudioSegment, Book, Chapter
 
@@ -243,6 +244,30 @@ def test_the_chosen_cut_level_reaches_the_conversion(
     app._start()
     app._drain()
     assert seen[0][6] == "paragraph"
+
+
+def test_the_chosen_crop_reaches_the_conversion(app: gui.App, monkeypatch, tmp_path) -> None:
+    seen: list = []
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+    monkeypatch.setattr(gui.settings, "save", lambda options: None)
+
+    app.crop_var.set("top")
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app._start()
+    app._drain()
+    assert seen[0][8] == "top"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_a_cover_draws_its_three_bands_on_the_crop_buttons(app: gui.App, tmp_path) -> None:
+    cover = tmp_path / "cover.png"
+    cover.write_bytes(images.placeholder_png(300, 900))
+    app.cover_var.set(str(cover))
+    drawn = [str(box["image"]) for box in app.crop_boxes.values()]
+    assert all(drawn), "every crop button carries its own picture of that band"
+    assert len(set(drawn)) == 3
 
 
 def test_a_pack_the_window_cannot_open_is_reported(app: gui.App, monkeypatch) -> None:

@@ -255,11 +255,13 @@ def build_story(
     announce: Announce | None = None,
     cover: Path | None = None,
     cut: str = "chapter",
+    crop: str = "center",
 ) -> StoryReport:
     """Render every chapter to `audios/` and write the story's JSON files and images.
 
     `cover` is the user's picture: it becomes the title image, the cover and the
     background of every card, which carries the chapter number and the total.
+    `crop` says which band of it survives the three different aspect ratios.
     """
     if not book.chapters:
         raise StoryError("the pack contains no chapter with audio")
@@ -306,7 +308,7 @@ def build_story(
         code = announce.language if announce is not None else "en"
         labels = [images.card_label(code, k + 1, count, cut == "chapter") for k in range(count)]
         log.info("drawing %d card(s) from the cover %s", count, cover.name)
-        images.write_cover(cover, out_dir, labels, [chapter.text for chapter in book.chapters])
+        images.write_cover(cover, out_dir, labels, [chapter.text for chapter in book.chapters], crop)
     else:
         (out_dir / images.TITLE_IMAGE).write_bytes(images.placeholder_png())
         (out_dir / images.COVER_IMAGE).write_bytes(images.placeholder_png(*images.COVER_SIZE))

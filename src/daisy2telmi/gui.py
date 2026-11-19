@@ -18,7 +18,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from . import audio, chapters, settings, tts
+from . import audio, chapters, images, settings, tts
 from .cli import convert
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
@@ -56,6 +56,9 @@ class App:
         self.pack_var = tk.StringVar()
         self.out_var = tk.StringVar()
         self.cover_var = tk.StringVar()
+        self.crop_var = tk.StringVar(value=self.options["cover_crop"])
+        self._previews: tuple[str, dict[str, bytes]] | None = None
+        self._crop_images: dict[str, tk.PhotoImage] = {}
         self.force_var = tk.BooleanVar(value=False)
         self.language_var = tk.StringVar(value=self.options["language"])
         self.cut = self.options["cut"]
@@ -83,7 +86,7 @@ class App:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
-        grid.rowconfigure(6, weight=1)
+        grid.rowconfigure(7, weight=1)
 
         self._label(grid, "pack_label").grid(row=0, column=0, sticky="w")
         ttk.Entry(grid, textvariable=self.pack_var).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
@@ -100,8 +103,26 @@ class App:
         ttk.Entry(grid, textvariable=self.cover_var).grid(row=4, column=1, sticky="ew", padx=(6, 0))
         self._button(grid, "browse_cover", self._pick_cover).grid(row=4, column=2, sticky="e", padx=(6, 0))
 
+        crop_row = ttk.Frame(grid)
+        crop_row.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._label(crop_row, "cover_crop_label").pack(side="left", padx=(0, 10))
+        self.crop_boxes: dict[str, ttk.Radiobutton] = {}
+        for mode in images.CROP_MODES:
+            box = ttk.Radiobutton(
+                crop_row,
+                text=self.t(f"crop_{mode}"),
+                variable=self.crop_var,
+                value=mode,
+                compound="top",
+                command=self._pick_crop,
+            )
+            self._labels[f"crop_{mode}"] = box
+            box.pack(side="left", padx=(0, 10))
+            self.crop_boxes[mode] = box
+        self.cover_var.trace_add("write", lambda *_: self._show_crop())
+
         controls = ttk.Frame(grid)
-        controls.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 8))
+        controls.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 8))
         self.convert_button = self._button(controls, "convert", self._start)
         self.convert_button.pack(side="left")
         self._button(controls, "options", self._open_options).pack(side="left", padx=12)
@@ -115,9 +136,9 @@ class App:
         self.progress.pack(side="right")
 
         self.log_view = tk.Text(grid, height=18, width=72, state="disabled", wrap="word")
-        self.log_view.grid(row=6, column=0, columnspan=3, sticky="nsew")
+        self.log_view.grid(row=7, column=0, columnspan=3, sticky="nsew")
         scroll = ttk.Scrollbar(grid, command=self.log_view.yview)
-        scroll.grid(row=6, column=3, sticky="ns")
+        scroll.grid(row=7, column=3, sticky="ns")
         self.log_view.configure(yscrollcommand=scroll.set)
 
         hint = self.t("drop_hint") if DND_FILES else self.t("drop_unavailable")
@@ -178,6 +199,29 @@ class App:
         if path:
             self.cover_var.set(path)
 
+    def _pick_crop(self) -> None:
+        self.options["cover_crop"] = self.crop_var.get()
+        settings.save(self.options)
+
+    def _show_crop(self) -> None:
+        """Draw each crop band on its own button: which band a tall cover loses
+        is not something a word can tell you."""
+        source = self._typed_path(self.cover_var)
+        if source is None or not source.is_file():
+            for box in self.crop_boxes.values():
+                box.configure(image="")
+            self._crop_images.clear()
+            return
+        if self._previews is None or self._previews[0] != str(source):
+            try:
+                self._previews = (str(source), images.crop_previews(source))
+            except images.ImageError as exc:
+                self._append(f"ERROR: {exc}")
+                return
+        for mode, png in self._previews[1].items():
+            self._crop_images[mode] = tk.PhotoImage(data=png)
+            self.crop_boxes[mode].configure(image=self._crop_images[mode])
+
     def _on_drop(self, event: tk.Event) -> None:
         dropped = self.root.tk.splitlist(event.data)
         if dropped:
@@ -231,6 +275,7 @@ class App:
                 ",".join(str(number) for number in dropped) if dropped else None,
                 self.cut,
                 self.options["lunii"],
+                self.crop_var.get(),
             ),
             daemon=True,
         ).start()
@@ -245,8 +290,9 @@ class App:
         drop: str | None,
         cut: str,
         lunii: bool,
+        crop: str,
     ) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut, lunii)))
+        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut, lunii, crop)))
 
     def _drain(self) -> None:
         while True:

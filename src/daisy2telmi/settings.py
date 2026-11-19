@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 
 DEFAULTS: dict = {
     "cut": "chapter",
+    "cover_crop": "center",
     "language": "en",
     "announce": "prompt",
     "autoplay": False,

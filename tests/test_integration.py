@@ -218,6 +218,33 @@ def test_an_output_folder_is_still_required_to_convert() -> None:
     assert stop.value.code == 2
 
 
+def test_a_crop_outside_the_three_bands_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as stop:
+        main([str(PACK), str(tmp_path / "out"), "--cover-crop", "middle"])
+    assert stop.value.code == 2
+
+
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_each_cover_crop_draws_a_different_pack(tmp_path: Path) -> None:
+    cover = tmp_path / "tall.png"
+    # Detail across the whole height, so no two bands of it are the same picture.
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=300x900,format=rgb24", "-frames:v", "1", str(cover),
+        ],
+        check=True,
+    )
+    titles = {}
+    for mode in images.CROP_MODES:
+        out = tmp_path / mode
+        assert main([str(PACK), str(out), "--cover", str(cover), "--cover-crop", mode]) == 0
+        folder = next(entry for entry in out.iterdir() if entry.is_dir())
+        titles[mode] = (folder / images.TITLE_IMAGE).read_bytes()
+    assert len(set(titles.values())) == 3, "each band has to land somewhere else in the pack"
+
+
 @requires_pack
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_a_preview_writes_one_playable_file_per_chapter(tmp_path: Path) -> None:
