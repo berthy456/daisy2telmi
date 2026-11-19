@@ -152,6 +152,8 @@ class App:
             engine=self.options["tts"],
             voice=self.options["voice"],
             command=self.options["command"],
+            python=self.options["python"],
+            clip=self.options["clip"],
         )
 
     def _pick_pack_file(self) -> None:
@@ -454,6 +456,14 @@ class Options:
         self.voice_box = self._combo([None], app.options["voice"])
         self.autoplay_var = tk.BooleanVar(value=bool(app.options["autoplay"]))
         self.lunii_var = tk.BooleanVar(value=bool(app.options["lunii"]))
+        self.python_box = ttk.Entry(self.top, width=28)
+        self.python_box.insert(0, app.options["python"] or "")
+
+        clip_row = ttk.Frame(grid)
+        self.clip_box = ttk.Entry(clip_row, width=22)
+        self.clip_box.insert(0, app.options["clip"] or "")
+        self.clip_box.pack(side="left")
+        ttk.Button(clip_row, text=app.t("browse_output"), command=self._pick_clip).pack(side="left", padx=(6, 0))
 
         self._row(grid, "opt_language", 0, self.language_box)
         self._row(grid, "opt_announce", 1, self.announce_box)
@@ -461,8 +471,10 @@ class Options:
         self._row(grid, "opt_lunii", 3, ttk.Checkbutton(grid, variable=self.lunii_var))
         self._row(grid, "opt_engine", 4, self.engine_box)
         self._row(grid, "opt_voice", 5, self.voice_box)
+        self._row(grid, "opt_python", 6, self.python_box)
+        self._row(grid, "opt_clip", 7, clip_row)
         ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=6, column=0, columnspan=2, sticky="e", pady=(12, 0)
+            row=8, column=0, columnspan=2, sticky="e", pady=(12, 0)
         )
 
         self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
@@ -508,6 +520,12 @@ class Options:
         self.voice_box.configure(values=[self._label_text(k) for k in names])
         self.voice_box.set(self._label_text(None))
 
+    def _pick_clip(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("audio", "*.wav *.mp3 *.flac *.m4a"), ("all files", "*.*")])
+        if path:
+            self.clip_box.delete(0, "end")
+            self.clip_box.insert(0, path)
+
     def _close(self) -> None:
         self.app.options.update(
             {
@@ -517,6 +535,8 @@ class Options:
                 "lunii": self.lunii_var.get(),
                 "tts": self._chosen(self.engine_box, self.engine_keys),
                 "voice": self._chosen(self.voice_box, self.voice_keys),
+                "python": self.python_box.get().strip() or None,
+                "clip": self.clip_box.get().strip() or None,
             }
         )
         self.app.language_var.set(self.app.options["language"])

@@ -9,6 +9,7 @@ in the player.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import shutil
@@ -29,8 +30,9 @@ ESPEAK = "espeak"
 SAY = "say"
 SAPI = "sapi"
 COMMAND = "command"
+CHATTERBOX = "chatterbox"
 
-ENGINES = (AUTO, ESPEAK, SAY, SAPI, COMMAND, OFF)
+ENGINES = (AUTO, ESPEAK, SAY, SAPI, COMMAND, CHATTERBOX, OFF)
 
 SPEAKING_RATE = 150  # words per minute, espeak-ng's unit
 
@@ -74,7 +76,34 @@ def _espeak_env() -> dict[str, str]:
     return env
 
 
-def available(name: str) -> bool:
+def _python(python: str | None = None) -> str | None:
+    """A Python the user can install models into; a frozen app has none of its own."""
+    return python or _which("python3") or _which("python")
+
+
+def _speak_script() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / "chatterbox_speak.py"
+    return Path(__file__).parent / "chatterbox_speak.py"
+
+
+# Spawning a Python to look for a package is cheap but not free, and the options
+# page asks on every relabel.
+_chatterbox_cache: dict[str, bool] = {}
+
+
+def _has_chatterbox(exe: str | None) -> bool:
+    if not exe:
+        return False
+    if exe not in _chatterbox_cache:
+        # find_spec only looks the package up: importing chatterbox would pull torch in.
+        probe = "import importlib.util as u; print(u.find_spec('chatterbox') is not None)"
+        result = subprocess.run([exe, "-I", "-c", probe], capture_output=True, text=True)
+        _chatterbox_cache[exe] = result.stdout.strip() == "True"
+    return _chatterbox_cache[exe]
+
+
+def available(name: str, python: str | None = None) -> bool:
     if name == ESPEAK:
         return _which("espeak-ng") or _which("espeak")
     if name == SAY:
@@ -84,20 +113,23 @@ def available(name: str) -> bool:
         return sys.platform == "win32" and (_which("powershell") or _which("pwsh"))
     if name == COMMAND:
         return True
+    if name == CHATTERBOX:
+        return _has_chatterbox(_python(python))
     return False
 
 
-def engines() -> list[Engine]:
+def engines(python: str | None = None) -> list[Engine]:
     labels = {
         ESPEAK: "espeak-ng",
         SAY: "macOS say",
         SAPI: "Windows speech",
         COMMAND: "custom command",
+        CHATTERBOX: "Chatterbox",
     }
-    return [Engine(name, labels[name], bool(available(name))) for name in (ESPEAK, SAY, SAPI, COMMAND)]
+    return [Engine(name, labels[name], bool(available(name, python))) for name in labels]
 
 
-def resolve(engine: str, lang: Language) -> str:
+def resolve(engine: str, lang: Language, python: str | None = None) -> str:
     """Pick an engine. `auto` prefers espeak-ng: it covers all ten languages."""
     if engine in (AUTO, OFF):
         if engine == OFF:
@@ -112,7 +144,14 @@ def resolve(engine: str, lang: Language) -> str:
         )
     if engine not in ENGINES:
         raise TtsError(f"unknown speech engine {engine!r}; choose from {', '.join(ENGINES)}")
-    if engine != COMMAND and not available(engine):
+    if engine == CHATTERBOX and not _python(python):
+        raise TtsError("chatterbox runs in your own Python: pass --tts-python with that interpreter")
+    if engine == CHATTERBOX and not _has_chatterbox(_python(python)):
+        raise TtsError(
+            "chatterbox is not installed in that Python: pip install chatterbox-tts there, "
+            "or point --tts-python at an interpreter that has it"
+        )
+    if engine != COMMAND and not available(engine, python):
         raise TtsError(f"{engine} is not available on this machine")
     return engine
 
@@ -215,6 +254,67 @@ def _check(argv: list[str], label: str, env: dict[str, str] | None = None) -> No
         raise TtsError(f"{label} failed: {detail[-1] if detail else 'exit ' + str(result.returncode)}")
 
 
+def _to_spec(raw: Path, dest: Path, engine: str, phrase: str) -> None:
+    if not raw.is_file() or raw.stat().st_size == 0:
+        raise TtsError(f"{engine} produced no audio for {phrase!r}")
+    audio.convert_to_spec(raw, dest)
+
+
+def _speak_one(phrase: str, lang: Language, dest: Path, engine: str, voice: str | None, command: str | None) -> None:
+    suffix = ".aiff" if engine == SAY else ".wav"
+    with tempfile.TemporaryDirectory(prefix="daisy2telmi-tts-") as tmp:
+        raw = Path(tmp) / f"speech{suffix}"
+        _render(engine, phrase, lang, voice, command, raw)
+        _to_spec(raw, dest, engine, phrase)
+    log.debug("speech via %s: %r -> %s", engine, phrase, dest.name)
+
+
+def _speak_batch(
+    phrases: list[str], lang: Language, dests: list[Path], clip: str | None, python: str | None
+) -> None:
+    """One Chatterbox process for the whole batch: loading the model costs more
+    than speaking a chapter number, and it would otherwise happen once per card."""
+    exe = _python(python)
+    log.info("speaking %d card(s) with Chatterbox in %s; the first run downloads the model", len(phrases), exe)
+    with tempfile.TemporaryDirectory(prefix="daisy2telmi-chatterbox-") as tmp:
+        folder = Path(tmp)
+        raw = [folder / f"speech{k}.wav" for k in range(len(phrases))]
+        manifest = folder / "manifest.json"
+        manifest.write_text(
+            json.dumps({"phrases": phrases, "outs": [str(path) for path in raw], "lang": lang.code, "clip": clip}),
+            encoding="utf-8",
+        )
+        _check([exe, "-I", str(_speak_script()), str(manifest)], "chatterbox")
+        for phrase, source, dest in zip(phrases, raw, dests):
+            _to_spec(source, dest, CHATTERBOX, phrase)
+
+
+def synthesize_all(
+    phrases: list[str],
+    lang_code: str,
+    dests: list[Path],
+    engine: str = AUTO,
+    voice: str | None = None,
+    command: str | None = None,
+    python: str | None = None,
+    clip: str | None = None,
+) -> None:
+    """Speak every phrase into `dests`, one file each."""
+    if not phrases:
+        return
+    if len(phrases) != len(dests):
+        raise TtsError("every phrase needs an output file")
+    lang = language(lang_code)
+    chosen = resolve(engine, lang, python)
+    if chosen == OFF:
+        raise TtsError("speech is switched off")
+    if chosen == CHATTERBOX:
+        _speak_batch(list(phrases), lang, list(dests), clip, python)
+        return
+    for phrase, dest in zip(phrases, dests):
+        _speak_one(phrase, lang, dest, chosen, voice, command)
+
+
 def synthesize(
     phrase: str,
     lang_code: str,
@@ -222,18 +322,7 @@ def synthesize(
     engine: str = AUTO,
     voice: str | None = None,
     command: str | None = None,
+    python: str | None = None,
 ) -> None:
     """Speak `phrase` into `dest` as an MP3 in the Telmi audio spec."""
-    lang = language(lang_code)
-    chosen = resolve(engine, lang)
-    if chosen == OFF:
-        raise TtsError("speech is switched off")
-
-    suffix = ".aiff" if chosen == SAY else ".wav"
-    with tempfile.TemporaryDirectory(prefix="daisy2telmi-tts-") as tmp:
-        raw = Path(tmp) / f"speech{suffix}"
-        _render(chosen, phrase, lang, voice, command, raw)
-        if not raw.is_file() or raw.stat().st_size == 0:
-            raise TtsError(f"{chosen} produced no audio for {phrase!r}")
-        audio.convert_to_spec(raw, dest)
-    log.debug("speech via %s: %r -> %s", chosen, phrase, dest.name)
+    synthesize_all([phrase], lang_code, [dest], engine, voice, command, python)

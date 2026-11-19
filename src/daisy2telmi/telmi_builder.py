@@ -62,6 +62,8 @@ class Announce:
     engine: str = tts.AUTO
     voice: str | None = None
     command: str | None = None
+    python: str | None = None
+    clip: str | None = None
 
     def phrase(self, number: int) -> str | None:
         if self.mode == "off":
@@ -188,29 +190,30 @@ def build_notes(book: Book) -> dict:
 def build_card_audio(
     count: int, announce: Announce, audios: Path
 ) -> tuple[list[str | None], bool]:
-    """Speak one announcement per card. A first failure stops the rest: the same
+    """Speak one announcement per card. A failure silences them all: the same
     engine would fail again, and a silent card is still a valid story."""
-    cards: list[str | None] = []
-    for k in range(count):
-        phrase = announce.phrase(k + 1)
-        if phrase is None:
-            cards.append(None)
-            continue
-        name = f"c{k}.mp3"
-        try:
-            tts.synthesize(
-                phrase,
-                announce.language,
-                audios / name,
-                engine=announce.engine,
-                voice=announce.voice,
-                command=announce.command,
-            )
-        except (tts.TtsError, audio.AudioError) as exc:
-            log.warning("chapter cards stay silent: %s", exc)
-            return [None] * count, 0
-        cards.append(name)
-    return cards, len(cards)
+    phrases = {k: announce.phrase(k + 1) for k in range(count)}
+    spoken = [k for k, phrase in phrases.items() if phrase is not None]
+    if not spoken:
+        return [None] * count, 0
+    try:
+        tts.synthesize_all(
+            [phrases[k] for k in spoken],
+            announce.language,
+            [audios / f"c{k}.mp3" for k in spoken],
+            engine=announce.engine,
+            voice=announce.voice,
+            command=announce.command,
+            python=announce.python,
+            clip=announce.clip,
+        )
+    except (tts.TtsError, audio.AudioError) as exc:
+        log.warning("chapter cards stay silent: %s", exc)
+        return [None] * count, 0
+    cards: list[str | None] = [None] * count
+    for k in spoken:
+        cards[k] = f"c{k}.mp3"
+    return cards, len(spoken)
 
 
 def _span(segments: Sequence[AudioSegment]) -> float | None:

@@ -84,6 +84,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     speech.add_argument("--tts", choices=tts.ENGINES, help="speech engine to use")
     speech.add_argument("--tts-voice", help="voice name for the speech engine")
+    speech.add_argument("--tts-clip", help="a few seconds of someone speaking, for --tts chatterbox to copy")
+    speech.add_argument(
+        "--tts-python",
+        help="interpreter --tts chatterbox runs in, for a Python where `pip install chatterbox-tts` was done",
+    )
     speech.add_argument(
         "--tts-command",
         help="command template for --tts command, using {text}, {out} and {lang}; "
@@ -111,6 +116,8 @@ def announce_options(args: argparse.Namespace) -> Announce:
         engine=args.tts or saved["tts"],
         voice=args.tts_voice or saved["voice"],
         command=args.tts_command or saved["command"],
+        python=args.tts_python or saved["python"],
+        clip=args.tts_clip or saved["clip"],
     )
 
 

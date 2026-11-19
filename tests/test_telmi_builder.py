@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -245,3 +246,15 @@ def test_one_failing_engine_leaves_every_card_silent(tmp_path) -> None:
     cards, spoken = build_card_audio(3, Announce(engine=absent), tmp_path)
     assert cards == [None, None, None]
     assert spoken == 0
+
+
+def test_each_spoken_card_is_named_after_its_chapter(tmp_path, monkeypatch) -> None:
+    def fake_synth(phrases, lang_code, dests, **options):
+        assert [Path(dest).name for dest in dests] == ["c0.mp3", "c1.mp3", "c2.mp3"]
+        for dest in dests:
+            Path(dest).write_bytes(b"mp3")
+
+    monkeypatch.setattr(tts, "synthesize_all", fake_synth)
+    cards, spoken = build_card_audio(3, Announce(language="fr"), tmp_path)
+    assert cards == ["c0.mp3", "c1.mp3", "c2.mp3"]
+    assert spoken == 3

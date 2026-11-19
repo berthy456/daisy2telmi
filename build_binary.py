@@ -192,6 +192,10 @@ def main() -> int:
         "lxml._elementpath",
         "--add-binary",
         f"{ffmpeg}{os.pathsep}.",
+        # Chatterbox runs in the user's own Python, so its helper has to be a real
+        # file on disk; PyInstaller keeps this one at the top of the unpacked folder.
+        "--add-data",
+        f"{ROOT / 'src' / 'daisy2telmi' / 'chatterbox_speak.py'}{os.pathsep}.",
         *_speech_options(),
         *_gui_options(),
         str(ROOT / "launcher.py"),
