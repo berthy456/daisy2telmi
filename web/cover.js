@@ -199,10 +199,12 @@ export function cardWords(ctx, text, width) {
 }
 
 /**
- * One card: the part's number, its opening words, and a thumbnail of the cover when there is one.
+ * One card: the part's number, its opening words, and the cover behind them.
  *
- * A book cut to the sentence level has hundreds of cards, so a card keeps a small
- * thumbnail rather than the whole cover: that is what keeps the zip importable.
+ * A colour card keeps a small thumbnail rather than the whole cover: a book cut to
+ * the sentence level has hundreds of cards, and that is what keeps the zip
+ * importable. A four-grey card shows the cover across the whole screen instead,
+ * with its lettering centred on a strip of its own at the top and the bottom.
  */
 export async function cardPng(
   label,
@@ -216,30 +218,47 @@ export async function cardPng(
   const canvas = surface(width, height);
   const ctx = canvas.getContext("2d");
   const { margin, thumb } = layout(width);
+  const band = style === "bw";
   ctx.fillStyle = PALETTE[style].background;
   ctx.fillRect(0, 0, width, height);
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
   ctx.textBaseline = "top";
-  if (cover) drawCover(ctx, cover, margin, margin, ...thumb, crop);
+  if (cover) {
+    if (band) drawCover(ctx, cover, 0, 0, width, height, crop);
+    else drawCover(ctx, cover, margin, margin, ...thumb, crop);
+  }
 
-  ctx.textAlign = "right";
-  ctx.font = `bold ${Math.round(height / 11)}px system-ui, sans-serif`;
+  const numberSize = Math.round(height / 11);
+  const size = Math.round(height / 17);
+  const pitch = Math.round(size * 1.3);
+  // The words are measured in the font they will be drawn in, so it goes on first.
+  ctx.font = `${size}px system-ui, sans-serif`;
+  const lines = cardWords(ctx, text, width - 2 * margin);
+  const wordsHeight = (lines.length - 1) * pitch + size;
+  const wordsTop = band ? height - margin - wordsHeight : margin + thumb[1] + margin;
+  if (band) {
+    ctx.fillRect(0, 0, width, margin + numberSize + margin);
+    ctx.fillRect(0, wordsTop - margin, width, height - wordsTop + margin);
+  }
+
+  ctx.font = `bold ${numberSize}px system-ui, sans-serif`;
   ctx.lineWidth = 6;
   ctx.strokeStyle = PALETTE[style].border;
   ctx.fillStyle = PALETTE[style].ink;
-  ctx.strokeText(label, width - margin, margin);
-  ctx.fillText(label, width - margin, margin);
+  ctx.textAlign = band ? "center" : "right";
+  const numberAt = band ? width / 2 : width - margin;
+  ctx.strokeText(label, numberAt, margin);
+  ctx.fillText(label, numberAt, margin);
 
-  const size = Math.round(height / 17);
-  ctx.textAlign = "left";
   ctx.font = `${size}px system-ui, sans-serif`;
+  ctx.textAlign = band ? "center" : "left";
   ctx.lineWidth = 4;
-  const pitch = Math.round(size * 1.3);
-  for (const [index, line] of cardWords(ctx, text, width - 2 * margin).entries()) {
-    const top = margin + thumb[1] + margin + index * pitch;
-    ctx.strokeText(line, margin, top);
-    ctx.fillText(line, margin, top);
+  const wordsAt = band ? width / 2 : margin;
+  for (const [index, line] of lines.entries()) {
+    const top = wordsTop + index * pitch;
+    ctx.strokeText(line, wordsAt, top);
+    ctx.fillText(line, wordsAt, top);
   }
   // Flattened last, once the cover and the letters are all down, so a card
   // cannot pick up a fifth grey where two layers meet.

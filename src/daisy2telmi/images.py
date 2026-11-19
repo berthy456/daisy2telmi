@@ -210,23 +210,49 @@ def _stamp(ink: list[bytearray], left: int, top: int, glyph: list[str], scale: i
                                 line[px] = value
 
 
-def _card_grid(label: str, text: str, width: int, height: int) -> list[bytearray]:
-    """One card's lettering: the number top right, its opening words under the thumbnail."""
+def _strip(ink: list[bytearray], top: int, bottom: int) -> None:
+    """Mark a full-width strip of the card where the lettering gets its own ground."""
+    for line in ink[max(0, top) : min(len(ink), bottom)]:
+        line[:] = bytes([3]) * len(line)
+
+
+def _card_grid(label: str, text: str, width: int, height: int, band: bool = False) -> list[bytearray]:
+    """One card's lettering: its number, and the words it opens with.
+
+    A colour card numbers itself top right, under which the thumbnail leaves room
+    for the words. A four-grey card carries the cover across the whole screen, so
+    its lettering takes two strips of its own: the number centred along the top,
+    the words centred along the bottom.
+    """
     margin, thumb, scale, number_scale = _layout(width)
     ink = [bytearray(width) for _ in range(height)]
     number = glyph_rows(label)
-    _stamp(ink, width - margin - len(number[0]) * number_scale, margin, number, number_scale, 1)
-    top = margin + thumb[1] + margin
-    for offset, line in enumerate(card_words(text, width, scale)):
-        glyph = glyph_rows(line)
-        _stamp(ink, margin, top + offset * scale * 9, glyph, scale, 1)
+    number_width = len(number[0]) * number_scale
+    if band:
+        _strip(ink, 0, margin + 7 * number_scale + margin)
+        left = (width - number_width) // 2
+    else:
+        left = width - margin - number_width
+    _stamp(ink, left, margin, number, number_scale, 1)
+
+    lines = card_words(text, width, scale)
+    if not lines:
+        return ink
+    if band:
+        top = height - margin - 7 * scale - (len(lines) - 1) * scale * 9
+        _strip(ink, top - margin, height)
+    else:
+        top = margin + thumb[1] + margin
+    for offset, line in enumerate(lines):
+        left = (width - (len(line) * 6 - 1) * scale) // 2 if band else margin
+        _stamp(ink, left, top + offset * scale * 9, glyph_rows(line), scale, 1)
     return ink
 
 
 def _grid_png(ink: list[bytearray], base: tuple[int, int, int] | None, style: str = "colour") -> bytes:
     """Colour a card's lettering grid: over `base` for a whole card, transparent for an overlay."""
     palette = _PALETTE[style]
-    letter, border = bytes(palette["ink"]), bytes(palette["border"])
+    letter, border, ground = bytes(palette["ink"]), bytes(palette["border"]), bytes(palette["background"])
     width, height = len(ink[0]), len(ink)
     rows = []
     for line in ink:
@@ -236,6 +262,8 @@ def _grid_png(ink: list[bytearray], base: tuple[int, int, int] | None, style: st
                 row += letter + (b"" if base is not None else b"\xff")
             elif cell == 1:
                 row += border + (b"" if base is not None else b"\xff")
+            elif cell == 3:
+                row += ground + (b"" if base is not None else b"\xff")
             elif base is not None:
                 row += bytes(base)
             else:
@@ -252,7 +280,11 @@ def card_png(
     style: str = "colour",
 ) -> bytes:
     """A card on its own: the part number, and the words it opens with when we can draw them."""
-    return _grid_png(_card_grid(label, text, width, height), _PALETTE[style]["background"], style)
+    return _grid_png(
+        _card_grid(label, text, width, height, band=style == "bw"),
+        _PALETTE[style]["background"],
+        style,
+    )
 
 
 def card_layer_png(
@@ -263,7 +295,7 @@ def card_layer_png(
     style: str = "colour",
 ) -> bytes:
     """The same lettering on a transparent canvas, to lay over a cropped cover."""
-    return _grid_png(_card_grid(label, text, width, height), None, style)
+    return _grid_png(_card_grid(label, text, width, height, band=style == "bw"), None, style)
 
 
 def card_label(language_code: str, number: int, total: int, word: bool = True) -> str:
@@ -389,9 +421,12 @@ def write_cover(
     four Lunii greys and turns the card inside out, white ground and black ink.
     `scene` and `cover_size` are that player's own sizes.
 
-    A card is a plain background with a small thumbnail of the cover, not the
-    cover blown up behind the words: a book cut to the sentence level has
-    hundreds of cards, and the thumbnail keeps one near 11 KB instead of 60 KB.
+    A colour card is a plain background with a small thumbnail of the cover, not
+    the cover blown up behind the words: a book cut to the sentence level has
+    hundreds of cards, and the thumbnail keeps one near 11 KB instead of 60 KB. A
+    four-grey card shows the cover across the whole screen instead, which at four
+    levels costs about as much again and is the only version that does not read as
+    an empty page.
     """
     ffmpeg = require_ffmpeg()
     images = out_dir / "images"
@@ -407,9 +442,14 @@ def write_cover(
         card_base = scratch / "card.png"
         _crop(ffmpeg, source, scene, base, crop)
         _crop(ffmpeg, source, cover_size, square, crop)
-        _crop(ffmpeg, source, thumb_size, thumbnail, crop)
-        plain.write_bytes(flat_png(*scene, style=style))
-        _overlay(ffmpeg, plain, thumbnail, card_base, margin, margin)
+        if style == "bw":
+            # The whole cover behind the lettering. It is flattened with the
+            # lettering, once: flattening twice would push every grey up a level.
+            shutil.copyfile(base, card_base)
+        else:
+            _crop(ffmpeg, source, thumb_size, thumbnail, crop)
+            plain.write_bytes(flat_png(*scene, style=style))
+            _overlay(ffmpeg, plain, thumbnail, card_base, margin, margin)
 
         for index, (label, text) in enumerate(zip(labels, texts)):
             layer = scratch / f"layer{index}.png"

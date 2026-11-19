@@ -11,6 +11,9 @@ export const FLATTENS = [];
 // Every line the page writes: the line, where, and the card it was written on.
 export const TEXTS = [];
 
+// Every rectangle the page fills: where, and the card it was filled on.
+export const FILLS = [];
+
 export class StubCanvas {
   constructor(width, height) {
     this.width = width;
@@ -21,7 +24,8 @@ export class StubCanvas {
   getContext() {
     const card = this;
     return {
-      fillRect: () => {},
+      fillRect: (left, top, width, height) =>
+        FILLS.push([left, top, width, height, card.width, card.height]),
       drawImage: (...args) => DRAWS.push({ width: card.width, height: card.height, args }),
       fillText: (line, x, y) => {
         card.text.push([line, x, y]);

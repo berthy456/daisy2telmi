@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRAWS, TEXTS, installCanvasStub } from "./canvas-stub.mjs";
+import { DRAWS, FILLS, TEXTS, installCanvasStub } from "./canvas-stub.mjs";
 
 installCanvasStub();
 
@@ -63,4 +63,39 @@ test("a smaller card shrinks its margins with its screen", async () => {
   assert.equal(number[3], 320, "the number is drawn on the Lunii card");
   assert.equal(number[1], 320 - 12, "its margin shrinks with the card");
   assert.equal(words[1], 12);
+});
+
+test("a four-grey card fills its screen with the cover and centres its lettering", async () => {
+  const { cardPng } = await import("../../web/cover.js");
+  DRAWS.length = 0;
+  TEXTS.length = 0;
+  FILLS.length = 0;
+  await cardPng("1/6", "Once upon a time", cover, "center", 320, 240, "bw");
+
+  const full = DRAWS.find((draw) => draw.args[3] === 320);
+  assert.ok(full, "the cover is drawn across the whole card, not in a corner");
+  assert.ok(full.args[4] >= 240, "and it reaches the bottom of it");
+
+  const [number, ...words] = TEXTS;
+  assert.equal(number[1], 160, "the number is centred along the top");
+  assert.ok(words.length > 0, "the words are still on the card");
+  for (const line of words) assert.equal(line[1], 160, "and they are centred too");
+
+  const strips = FILLS.filter(([, , width, height, card]) => card === 320 && width === 320 && height < 240);
+  assert.equal(strips.length, 2, "one strip behind the number, one behind the words");
+  assert.equal(strips[0][1], 0, "the number's strip starts at the top of the screen");
+  assert.equal(strips[1][1] + strips[1][3], 240, "the words' strip reaches the bottom");
+});
+
+test("a colour card keeps its corner number, its thumbnail and no strips", async () => {
+  const { cardPng } = await import("../../web/cover.js");
+  TEXTS.length = 0;
+  FILLS.length = 0;
+  await cardPng("1/6", "Once upon a time", cover, "center", 320, 240, "colour");
+  assert.equal(TEXTS[0][1], 320 - 12, "the number stays in the corner");
+  assert.equal(
+    FILLS.filter(([, , width, height, card]) => card === 320 && width === 320 && height < 240).length,
+    0,
+    "a colour card draws no strip behind its lettering",
+  );
 });

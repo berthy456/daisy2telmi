@@ -227,3 +227,62 @@ def test_crop_previews_shows_every_band_small(tmp_path: Path) -> None:
     for mode, png in previews.items():
         saved.write_bytes(png)
         assert _band(saved) == BANDS[mode], mode
+
+
+def _pixel(png: Path, x: int, y: int) -> tuple[int, int, int]:
+    result = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(png),
+            "-vf", f"crop=1:1:{x}:{y}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+        ],
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    return struct.unpack("BBB", result.stdout[:3])
+
+
+@NO_FFMPEG
+def test_a_four_grey_card_fills_its_screen_with_the_cover(tmp_path: Path) -> None:
+    """A small thumbnail on a white field reads as an empty card, not a cover."""
+    out = tmp_path / "story"
+    images.write_cover(
+        _tall_cover(tmp_path), out, ["1/1"], [""], "center", "bw", (320, 240), (320, 240)
+    )
+    card = out / "images" / "m0.png"
+    assert _pixel(card, 160, 120) == _pixel(out / images.TITLE_IMAGE, 160, 120)
+
+
+@NO_FFMPEG
+def test_a_colour_card_keeps_its_thumbnail_and_its_flat_ground(tmp_path: Path) -> None:
+    out = tmp_path / "story"
+    images.write_cover(
+        _tall_cover(tmp_path), out, ["1/1"], [""], "center", "colour", (320, 240), (320, 240)
+    )
+    # ffmpeg moves a flat colour by a unit on the way through, as it does in _band.
+    assert _pixel(out / "images" / "m0.png", 160, 120) == pytest.approx(images.BACKGROUND, abs=2)
+
+
+def _inked(ink: list[bytearray], top: int, bottom: int) -> tuple[int, int]:
+    """The leftmost and rightmost inked column across a band of rows."""
+    columns = [x for line in ink[top:bottom] for x, cell in enumerate(line) if cell in (1, 2)]
+    return min(columns), max(columns)
+
+
+def test_a_four_grey_card_centres_its_number_and_its_words() -> None:
+    ink = images._card_grid("3/12", "the second of six parts", 320, 240, band=True)
+    margin, _, scale, number_scale = images._layout(320)
+    left, right = _inked(ink, margin, margin + 7 * number_scale)
+    assert abs(left + right - 319) <= 1, "the number sits in the middle of its screen"
+    assert ink[0][0] == 3 and ink[239][319] == 3, "the lettering strips reach the edges"
+    assert ink[120][160] == 0, "the cover keeps the middle of the card"
+    words_left, words_right = _inked(ink, 240 - margin - 7 * scale, 240)
+    assert abs(words_left + words_right - 319) <= 1, "the words are centred too"
+
+
+def test_a_colour_card_still_numbers_itself_in_the_corner() -> None:
+    ink = images._card_grid("3/12", "the second of six parts", 640, 480)
+    margin, _, _, number_scale = images._layout(640)
+    left, right = _inked(ink, margin, margin + 7 * number_scale)
+    assert abs(right - (640 - margin)) <= 1
+    assert left > 640 // 2, "the number stays in the corner"
+    assert 3 not in ink[0], "a colour card draws no strip behind its lettering"
