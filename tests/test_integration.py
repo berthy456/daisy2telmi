@@ -10,8 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from daisy2telmi import images
+from daisy2telmi import audio, images
 from daisy2telmi.cli import main
+from daisy2telmi.detector import open_pack
+from daisy2telmi.extractor import extract
 from daisy2telmi.telmi_builder import story_dir_name
 from nodes_validator import validate_story_dir, validate_story_zip
 
@@ -46,7 +48,7 @@ def probe(path: Path) -> dict[str, str]:
             "-select_streams",
             "a:0",
             "-show_entries",
-            "stream=sample_rate,channels,bit_rate:format=duration",
+            "stream=codec_name,sample_rate,channels,bit_rate:format=duration",
             "-of",
             "default=noprint_wrappers=1:nokey=0",
             str(path),
@@ -105,6 +107,11 @@ def test_every_chapter_has_a_card_image(story: Path) -> None:
         assert image.stat().st_size > 1000
 
 
+def _clip_count() -> int:
+    with open_pack(PACK) as pack:
+        return sum(len(chapter.segments) for chapter in extract(pack).chapters)
+
+
 @requires_pack
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
 def test_no_audio_is_dropped_from_the_book(story: Path) -> None:
@@ -115,19 +122,26 @@ def test_no_audio_is_dropped_from_the_book(story: Path) -> None:
         if name.startswith("s")
     )
     title = float(probe(story / "title.mp3")["duration"])
-    assert scenes + title == pytest.approx(TOTAL_SECONDS, abs=0.5)
-    assert title == pytest.approx(FRONT_MATTER_SECONDS, abs=0.2)
+    # Joined clips keep their container's own padding, so the book can come out a
+    # tolerance per clip longer than the marks declare. Nothing may be shorter.
+    slack = audio.WHOLE_CLIP_TOLERANCE * _clip_count()
+    assert scenes + title >= TOTAL_SECONDS - 0.5
+    assert scenes + title <= TOTAL_SECONDS + slack
+    assert title == pytest.approx(FRONT_MATTER_SECONDS, abs=audio.WHOLE_CLIP_TOLERANCE + 0.2)
 
 
 @requires_pack
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
-def test_audio_meets_the_telmi_spec(story: Path) -> None:
-    files = [story / "title.mp3", *(story / "audios").glob("*.mp3")]
-    for path in files:
+def test_audio_is_an_mp3_the_player_can_decode(story: Path) -> None:
+    """Whole clips are joined as the pack wrote them; the player resamples to 44100 Hz."""
+    for path in [story / "title.mp3", *(story / "audios").glob("s*.mp3")]:
         info = probe(path)
-        assert float(info["sample_rate"]) == 44100.0, path
+        assert info["codec_name"] == "mp3", path
+        assert float(info["sample_rate"]) == 22050.0, path
         assert info["channels"] == "1", path
-        assert 64_000 <= float(info["bit_rate"]) <= 192_000, path
+        assert 24_000 <= float(info["bit_rate"]) <= 320_000, path
+    for path in (story / "audios").glob("c*.mp3"):
+        assert float(probe(path)["sample_rate"]) == 44100.0, path
 
 
 @requires_pack

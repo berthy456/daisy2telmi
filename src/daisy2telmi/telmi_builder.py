@@ -40,6 +40,7 @@ class StoryReport:
     stages: tuple[str, ...]
     title_source: str
     cards: int = 0
+    audio_mode: str = "encoded"
 
 
 @dataclass(frozen=True)
@@ -227,9 +228,10 @@ def build_story(
     scene.mkdir(parents=True, exist_ok=True)
 
     chapter_names = [f"s{k}" for k in range(len(book.chapters))]
+    modes = set()
     for name, index, chapter in zip(chapter_names, range(len(book.chapters)), book.chapters):
         log.info("rendering %s (%d audio clip group(s)) <- %s", name, len(chapter.segments), chapter.title)
-        audio.render(chapter.segments, audios / f"{name}.mp3")
+        modes.add(audio.render(chapter.segments, audios / f"{name}.mp3"))
         if cover is None:
             (scene / f"m{index}.png").write_bytes(images.chapter_png(index + 1))
 
@@ -244,7 +246,7 @@ def build_story(
     title_path = out_dir / "title.mp3"
     if book.front_matter:
         log.info("rendering title.mp3 from the pack's front matter")
-        audio.render(book.front_matter, title_path)
+        modes.add(audio.render(book.front_matter, title_path))
         title_source = "front matter"
     else:
         log.info("pack has no front-matter audio; writing 1s of silence as title.mp3")
@@ -278,8 +280,13 @@ def build_story(
         json.dumps(build_notes(book), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
+    audio_mode = modes.pop() if len(modes) == 1 else "mixed"
     return StoryReport(
-        out_dir=out_dir, stages=tuple(chapter_names), title_source=title_source, cards=spoken
+        out_dir=out_dir,
+        stages=tuple(chapter_names),
+        title_source=title_source,
+        cards=spoken,
+        audio_mode=audio_mode,
     )
 
 

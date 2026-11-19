@@ -181,7 +181,13 @@ def convert(
 
     log.info("wrote %d scene(s) to %s", len(report.stages), report.out_dir)
     log.info("zipped for Telmi Sync import: %s", zip_path)
-    log.info("audio written as %s", audio.SPEC)
+    log.info(
+        "audio: %s",
+        {
+            "joined": "joined as the pack's own MP3s, which the player resamples",
+            "mixed": f"some scenes joined, the rest written as {audio.SPEC}",
+        }.get(report.audio_mode, f"written as {audio.SPEC}"),
+    )
     log.info("title.mp3 source: %s", report.title_source)
     log.info("chapter cards: %d spoken, autoplay %s", report.cards, "on" if announce and announce.autoplay else "off")
     return 0

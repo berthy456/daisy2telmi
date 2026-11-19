@@ -64,22 +64,101 @@ def _run(args: list[str], description: str) -> None:
 
 
 _DURATION = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2})\.(\d+)")
+_AUDIO_STREAM = re.compile(r"Stream #\d+:\d+[^:]*: Audio: (\w+)[^,]*, (\d+) Hz, ([a-z0-9()]+)")
+
+# A DAISY mark stops where the mark maker heard the clip end, while the container
+# length counts the encoder delay and the padding frame, so the two differ by frames.
+WHOLE_CLIP_TOLERANCE = 0.25
+
+_headers: dict[Path, tuple[float | None, tuple[str, int, str] | None]] = {}
 
 
-def duration(src: str | Path) -> float | None:
-    """Seconds of audio in `src`, read from ffmpeg's header of the container.
+def _header(src: str | Path) -> tuple[float | None, tuple[str, int, str] | None]:
+    """`(seconds, (codec, sample rate, channels))` from ffmpeg's container header.
 
     ffmpeg is asked for no output file, so it exits non-zero once it has printed
     the header: the header is the whole point, and decoding the file is not.
     """
-    result = subprocess.run(
-        [require_ffmpeg(), "-hide_banner", "-i", str(src)], capture_output=True, text=True
-    )
-    match = _DURATION.search(result.stderr)
-    if match is None:
-        return None
-    hours, minutes, seconds, fraction = match.groups()
-    return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + float(f"0.{fraction}")
+    path = Path(src)
+    if path not in _headers:
+        result = subprocess.run(
+            [require_ffmpeg(), "-hide_banner", "-i", str(path)], capture_output=True, text=True
+        )
+        seconds = None
+        found = _DURATION.search(result.stderr)
+        if found is not None:
+            hours, minutes, secs, fraction = found.groups()
+            seconds = int(hours) * 3600 + int(minutes) * 60 + int(secs) + float(f"0.{fraction}")
+        stream = _AUDIO_STREAM.search(result.stderr)
+        _headers[path] = (
+            seconds,
+            None if stream is None else (stream.group(1), int(stream.group(2)), stream.group(3)),
+        )
+    return _headers[path]
+
+
+def duration(src: str | Path) -> float | None:
+    """Seconds of audio in `src`."""
+    return _header(src)[0]
+
+
+def probe(src: str | Path) -> tuple[str, int, str] | None:
+    """`(codec, sample rate, channels)` of `src`."""
+    return _header(src)[1]
+
+
+def _needs_trim(segment: AudioSegment) -> bool:
+    if segment.begin not in (None, 0.0):
+        return True
+    if segment.end is None:
+        return False
+    whole = duration(segment.src)
+    return whole is None or segment.end < whole - WHOLE_CLIP_TOLERANCE
+
+
+def _copyable(segments: tuple[AudioSegment, ...] | list[AudioSegment]) -> bool:
+    """Whole MP3 clips at one rate can be joined frame by frame, which is lossless.
+
+    The player resamples, so the frames do not even have to match each other, but a
+    mix of codecs would not be a valid MP3 any more, so anything else is re-encoded.
+    """
+    if any(_needs_trim(segment) for segment in segments):
+        return False
+    specs = {probe(segment.src) for segment in segments}
+    return None not in specs and len(specs) == 1 and next(iter(specs))[0] == "mp3"
+
+
+def _quote(path: Path) -> str:
+    """A concat-list path: single quoted, a quote inside it escaped as '\\'''."""
+    return "'" + str(path).replace("'", r"'\''") + "'"
+
+
+def _copy_concat(paths: list[Path], dest: str | Path) -> None:
+    exe = require_ffmpeg()
+    listing = Path(f"{dest}.concat")
+    listing.write_text("".join(f"file {_quote(path)}\n" for path in paths), encoding="utf-8")
+    try:
+        _run(
+            [
+                exe,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(listing),
+                "-c",
+                "copy",
+                str(dest),
+            ],
+            f"could not join {len(paths)} MP3 clip(s)",
+        )
+    finally:
+        listing.unlink(missing_ok=True)
 
 
 def _trim_filter(segment: AudioSegment) -> str:
@@ -95,10 +174,18 @@ def _trim_filter(segment: AudioSegment) -> str:
     return ",".join(steps)
 
 
-def render(segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | Path) -> None:
-    """Render `segments`, in order, into one MP3 at `dest` matching the Telmi spec."""
+def render(segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | Path) -> str:
+    """Render `segments`, in order, into one MP3 at `dest`.
+
+    Returns "joined" when the clips went in as they were, "encoded" when they were
+    decoded and rewritten to the Telmi spec.
+    """
     if not segments:
         raise AudioError(f"refusing to render an empty scene audio for {dest}")
+    if _copyable(segments):
+        log.info("joining %d whole MP3 clip(s) without re-encoding", len(segments))
+        _copy_concat([Path(segment.src) for segment in segments], dest)
+        return "joined"
     exe = require_ffmpeg()
 
     args = [exe, "-hide_banner", "-loglevel", "error", "-y"]
@@ -130,6 +217,7 @@ def render(segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | 
         str(dest),
     ]
     _run(args, f"could not render {Path(dest).name}")
+    return "encoded"
 
 
 def convert_to_spec(src: str | Path, dest: str | Path) -> None:
