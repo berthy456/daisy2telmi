@@ -16,7 +16,6 @@ export class Element {
     this.tagName = tagName;
     this.attrs = new Map();
     this.children = [];
-    this.text = "";
   }
 
   get(name) {
@@ -42,13 +41,21 @@ export class Element {
   }
 }
 
+/** A run of text between tags, kept among the children so it stays in document order. */
+export class TextNode extends Element {
+  constructor(value) {
+    super("#text");
+    this.value = value;
+  }
+}
+
 export function parseXml(text) {
   const root = new Element("#root");
   const stack = [root];
   let i = 0;
 
   const appendText = (slice) => {
-    stack[stack.length - 1].text += decodeEntities(slice);
+    stack[stack.length - 1].children.push(new TextNode(decodeEntities(slice)));
   };
 
   while (i < text.length) {
@@ -102,7 +109,7 @@ export function parseXml(text) {
     if (!selfClosing) stack.push(element);
   }
 
-  return root.children[0] ?? root;
+  return root.children.find((child) => child.tagName !== "#text") ?? root;
 }
 
 /** "00:22:56.5" and "1376.5" both appear in DAISY packs; both mean seconds. */

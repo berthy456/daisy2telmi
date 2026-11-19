@@ -118,68 +118,118 @@ def glyph_rows(text: str) -> list[str]:
     return [" ".join(GLYPHS[character][y] for character in text) for y in range(7)]
 
 
-def chapter_png(number: int, width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]) -> bytes:
-    """A placeholder carrying the chapter number, so scenes are tellable apart."""
-    glyph = [" ".join(_DIGITS[d][y] for d in str(number)) for y in range(7)]
-    scale = min(24, (width * 2 // 3) // len(glyph[0]), (height * 2 // 3) // len(glyph))
-    block_width, block_height = len(glyph[0]) * scale, len(glyph) * scale
-    left, top = (width - block_width) // 2, (height - block_height) // 2
-
-    canvas = [bytes(BACKGROUND) * width for _ in range(top)]
-    for glyph_row in glyph:
-        strip = b"".join(
-            bytes(FOREGROUND if ink == "1" else BACKGROUND) * scale for ink in glyph_row
-        )
-        canvas += [bytes(BACKGROUND) * left + strip + bytes(BACKGROUND) * (width - left - block_width)] * scale
-    canvas += [bytes(BACKGROUND) * width for _ in range(height - top - block_height)]
-    return _png(width, height, canvas)
+MARGIN = 24
+CARD_LINES = 3
+CARD_WORDS = 20
+CARD_SCALE = 4
+NUMBER_SCALE = 6
+CARD_THUMB = (160, 120)
 
 
-def card_label(language_code: str, number: int, total: int) -> str:
-    """The words drawn on a chapter card, in the story's language.
+def _drawable(text: str) -> str:
+    """`text` upper cased with every character the built-in font lacks turned into a space."""
+    return "".join(character if character in GLYPHS else " " for character in text.upper())
+
+
+def card_words(text: str, width: int = IMAGE_SIZE[0], scale: int = CARD_SCALE) -> list[str]:
+    """The opening words of a part, as up to three lines the card can show.
+
+    The built-in font is 5x7 Latin, so a part whose words it cannot write gets no
+    lines at all: the number and the spoken snippet still place the listener.
+    """
+    words = _drawable(text).split()[:CARD_WORDS]
+    if not words:
+        return []
+    columns = (width - 2 * MARGIN) // (scale * 6)
+    lines: list[str] = []
+    for word in words:
+        if lines and len(lines[-1]) + 1 + len(word) <= columns:
+            lines[-1] = f"{lines[-1]} {word}"
+        elif len(lines) < CARD_LINES:
+            lines.append(word)
+        else:
+            break
+    return [line[:columns] for line in lines]
+
+
+def _stamp(ink: list[bytearray], left: int, top: int, glyph: list[str], scale: int, border: int) -> None:
+    """Mark a 5x7 `glyph` into `ink`: 1 for the outline, 2 for the letter itself."""
+    for pass_number, value in ((1, 1), (2, 2)):
+        for y, row in enumerate(glyph):
+            for x, cell in enumerate(row):
+                if cell != "1":
+                    continue
+                grow = border if pass_number == 1 else 0
+                for py in range(top + y * scale - grow, top + (y + 1) * scale + grow):
+                    if 0 <= py < len(ink):
+                        line = ink[py]
+                        for px in range(left + x * scale - grow, left + (x + 1) * scale + grow):
+                            if 0 <= px < len(line):
+                                line[px] = value
+
+
+def _card_grid(label: str, lines: list[str], width: int, height: int) -> list[bytearray]:
+    """One card's lettering: the number top right, its opening words under the thumbnail."""
+    ink = [bytearray(width) for _ in range(height)]
+    number = glyph_rows(label)
+    _stamp(ink, width - MARGIN - len(number[0]) * NUMBER_SCALE, MARGIN, number, NUMBER_SCALE, 1)
+    top = MARGIN + CARD_THUMB[1] + MARGIN
+    for offset, line in enumerate(lines):
+        glyph = glyph_rows(line)
+        _stamp(ink, MARGIN, top + offset * CARD_SCALE * 9, glyph, CARD_SCALE, 1)
+    return ink
+
+
+def _grid_png(ink: list[bytearray], base: tuple[int, int, int] | None) -> bytes:
+    """Colour a card's lettering grid: over `base` for a whole card, transparent for an overlay."""
+    width, height = len(ink[0]), len(ink)
+    rows = []
+    for line in ink:
+        row = bytearray()
+        for cell in line:
+            if cell == 2:
+                row += b"\xff\xff\xff" + (b"" if base is not None else b"\xff")
+            elif cell == 1:
+                row += b"\x00\x00\x00" + (b"" if base is not None else b"\xff")
+            elif base is not None:
+                row += bytes(base)
+            else:
+                row += b"\x00\x00\x00\x00"
+        rows.append(bytes(row))
+    return _png(width, height, rows, colour_type=6 if base is None else 2)
+
+
+def card_png(
+    label: str, text: str = "", width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]
+) -> bytes:
+    """A card on its own: the part number, and the words it opens with when we can draw them."""
+    return _grid_png(_card_grid(label, card_words(text), width, height), BACKGROUND)
+
+
+def card_layer_png(
+    label: str, text: str = "", width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]
+) -> bytes:
+    """The same lettering on a transparent canvas, to lay over a cropped cover."""
+    return _grid_png(_card_grid(label, card_words(text), width, height), None)
+
+
+def card_label(language_code: str, number: int, total: int, word: bool = True) -> str:
+    """The words drawn on a card, in the story's language.
 
     The font is Latin, so Chinese and Arabic cards carry the number alone: it is
     the part that has to be read, and the spoken card already says the word.
+    A part cut below chapter level gets the number alone as well, because none
+    of the words we have would be the right one for it.
     """
-    label = f"{language(language_code).card.upper()} {number}/{total}"
+    label = f"{number}/{total}" if not word else f"{language(language_code).card.upper()} {number}/{total}"
     if all(character in GLYPHS for character in label):
         return label
     return f"{number}/{total}"
 
 
-def label_png(text: str, max_width: int = IMAGE_SIZE[0]) -> bytes:
-    """`text` in white with a black border, on a transparent canvas."""
-    glyph = glyph_rows(text)
-    scale = max(4, min(24, (max_width * 4 // 5) // len(glyph[0])))
-    border = max(1, scale // 6)
-    pad = border * 2
-    columns, rows = len(glyph[0]), len(glyph)
-
-    def ink(x: int, y: int) -> bool:
-        return 0 <= x < columns and 0 <= y < rows and glyph[y][x] == "1"
-
-    def touched(x: int, y: int) -> bool:
-        return any(
-            ink(x + dx, y + dy)
-            for dx in range(-border, border + 1)
-            for dy in range(-border, border + 1)
-        )
-
-    width, height = columns * scale + 2 * pad, rows * scale + 2 * pad
-    canvas = []
-    for y in range(height):
-        row = bytearray()
-        for x in range(width):
-            cell_x, cell_y = (x - pad) // scale, (y - pad) // scale
-            if 0 <= cell_x < columns and 0 <= cell_y < rows:
-                colour = (255, 255, 255, 255) if ink(cell_x, cell_y) else (
-                    (0, 0, 0, 255) if touched(cell_x, cell_y) else (0, 0, 0, 0)
-                )
-            else:
-                colour = (0, 0, 0, 0)
-            row += bytes(colour)
-        canvas.append(bytes(row))
-    return _png(width, height, canvas, colour_type=6)
+def flat_png(width: int = IMAGE_SIZE[0], height: int = IMAGE_SIZE[1]) -> bytes:
+    """A plain card background, before the cover thumbnail and the lettering go on it."""
+    return _png(width, height, [bytes(BACKGROUND) * width] * height)
 
 
 def _run(args: list[str], description: str) -> None:
@@ -206,7 +256,7 @@ def _crop(ffmpeg: str, source: Path, size: tuple[int, int], dest: Path) -> None:
     )
 
 
-def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path) -> None:
+def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path, x: int, y: int) -> None:
     _run(
         [
             ffmpeg,
@@ -216,7 +266,7 @@ def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path) -> None:
             "-i",
             str(overlay),
             "-filter_complex",
-            "overlay=(W-w)/2:(H-h)/2",
+            f"overlay={x}:{y}",
             "-frames:v",
             "1",
             str(dest),
@@ -225,8 +275,13 @@ def _overlay(ffmpeg: str, base: Path, overlay: Path, dest: Path) -> None:
     )
 
 
-def write_cover(source: Path, out_dir: Path, labels: Sequence[str]) -> None:
-    """`title.png`, `cover.png` and one numbered card per label, all from `source`."""
+def write_cover(source: Path, out_dir: Path, labels: Sequence[str], texts: Sequence[str]) -> None:
+    """`title.png`, `cover.png` and one card per part, all from `source`.
+
+    A card is a plain background with a small thumbnail of the cover, not the
+    cover blown up behind the words: a book cut to the sentence level has
+    hundreds of cards, and the thumbnail keeps one near 11 KB instead of 60 KB.
+    """
     ffmpeg = require_ffmpeg()
     images = out_dir / "images"
     images.mkdir(parents=True, exist_ok=True)
@@ -235,13 +290,19 @@ def write_cover(source: Path, out_dir: Path, labels: Sequence[str]) -> None:
         scratch = Path(tmp)
         base = scratch / "base.png"
         square = scratch / "square.png"
+        thumb = scratch / "thumb.png"
+        plain = scratch / "plain.png"
+        card_base = scratch / "card.png"
         _crop(ffmpeg, source, IMAGE_SIZE, base)
         _crop(ffmpeg, source, COVER_SIZE, square)
+        _crop(ffmpeg, source, CARD_THUMB, thumb)
+        plain.write_bytes(flat_png())
+        _overlay(ffmpeg, plain, thumb, card_base, MARGIN, MARGIN)
 
-        for index, label in enumerate(labels):
-            text = scratch / f"label{index}.png"
-            text.write_bytes(label_png(label))
-            _overlay(ffmpeg, base, text, images / f"m{index}.png")
+        for index, (label, text) in enumerate(zip(labels, texts)):
+            layer = scratch / f"layer{index}.png"
+            layer.write_bytes(card_layer_png(label, text))
+            _overlay(ffmpeg, card_base, layer, images / f"m{index}.png", 0, 0)
 
         shutil.copyfile(base, out_dir / TITLE_IMAGE)
         shutil.copyfile(square, out_dir / COVER_IMAGE)

@@ -83,8 +83,14 @@ export function buildNodes(chapterNames, cardAudio = []) {
   return { startAction: { action: "m", index: 0 }, stages, actions };
 }
 
+// A book cut to the sentence level has hundreds of parts; Telmi-Sync shows this
+// list, so it stops short rather than filling the story's description.
+const LISTED_PARTS = 30;
+
 export function buildMetadata(book, uuid) {
-  const details = book.chapters.map((chapter, index) => `- ${chapter.title} (${index + 1}/${book.chapters.length})`);
+  const shown = book.chapters.slice(0, LISTED_PARTS);
+  const details = shown.map((chapter, index) => `- ${chapter.title} (${index + 1}/${book.chapters.length})`);
+  if (book.chapters.length > shown.length) details.push(`... ${book.chapters.length - shown.length} more`);
   const credits = [
     ["Author", book.author],
     ["Narrator", book.narrator],

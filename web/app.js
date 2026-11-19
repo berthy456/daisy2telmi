@@ -19,13 +19,18 @@ const coverUse = document.getElementById("cover-use");
 const coverClear = document.getElementById("cover-clear");
 const coverPreview = document.getElementById("cover-preview");
 const coverSearch = document.getElementById("cover-search");
+const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
 
 const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffer());
 const STORED_LANGUAGE = "daisy2telmi.language";
+const STORED_CUT = "daisy2telmi.cut";
+// The summary lists the parts it starts; a book cut to the sentence level has hundreds.
+const LISTED_PARTS = 30;
 
 let source = null;
 let cover = null;
 let lang = "en";
+let cut = "chapter";
 
 const t = (key, values) => text(lang, key, values);
 
@@ -34,17 +39,17 @@ function log(line) {
   logView.scrollTop = logView.scrollHeight;
 }
 
-function savedLanguage() {
+function saved(key) {
   try {
-    return localStorage.getItem(STORED_LANGUAGE);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function rememberLanguage(chosen) {
+function remember(key, value) {
   try {
-    localStorage.setItem(STORED_LANGUAGE, chosen);
+    localStorage.setItem(key, value);
   } catch {
     // A blocked or full localStorage only costs the saved choice.
   }
@@ -57,12 +62,24 @@ function startLanguage() {
     option.textContent = NAMES[code];
     langSelect.append(option);
   }
-  lang = apply(pickLanguage(savedLanguage(), navigator.language));
+  lang = apply(pickLanguage(saved(STORED_LANGUAGE), navigator.language));
   langSelect.value = lang;
   langSelect.addEventListener("change", () => {
     lang = apply(langSelect.value);
-    rememberLanguage(lang);
+    remember(STORED_LANGUAGE, lang);
   });
+}
+
+function startCut() {
+  const stored = saved(STORED_CUT);
+  cut = cutInputs.some((input) => input.value === stored) ? stored : "chapter";
+  for (const input of cutInputs) {
+    input.checked = input.value === cut;
+    input.addEventListener("change", () => {
+      cut = input.value;
+      remember(STORED_CUT, cut);
+    });
+  }
 }
 
 function setCover(bitmap) {
@@ -84,10 +101,10 @@ function clearCover() {
 }
 
 function showSummary(story) {
-  const chapters = story.book.chapters
-    .map((chapter, index) => `${index + 1}. ${chapter.title}`)
-    .join("\n");
-  summary.textContent = `${story.dirName}\n${t("log_chapters", { n: story.book.chapters.length })}\n${chapters}`;
+  const parts = story.book.chapters;
+  const listed = parts.slice(0, LISTED_PARTS).map((part, index) => `${index + 1}. ${part.title}`).join("\n");
+  const more = parts.length > LISTED_PARTS ? `\n${t("summary_more", { n: parts.length - LISTED_PARTS })}` : "";
+  summary.textContent = `${story.dirName}\n${t("log_chapters", { n: parts.length })}\n${listed}${more}`;
   summary.hidden = false;
   coverSearch.href = searchUrl(story.book.title);
   coverSearch.hidden = false;
@@ -113,8 +130,9 @@ async function convert() {
       },
       {
         cover,
+        cut,
         t: (key) => t(key),
-        cardLabel: (number, total) => t("card_label", { n: number, total }),
+        cardLabel: (number, total, worded) => t(worded ? "card_label" : "card_number", { n: number, total }),
         cardAudio: async (number) => {
           const voice = await cardAudio(lang, number);
           if (voice === null) log(t("log_card_silent", { n: number }));
@@ -209,3 +227,4 @@ coverClear.addEventListener("click", clearCover);
 convertButton.addEventListener("click", convert);
 
 startLanguage();
+startCut();

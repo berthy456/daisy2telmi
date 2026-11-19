@@ -1,24 +1,10 @@
 // Placeholder images, written by hand so the page needs no canvas and no image library.
-// Port of the Python placeholder_png / chapter_png in telmi_builder.py.
+// Port of the Python placeholder_png in telmi_builder.py.
 
 import { crc32 } from "./zip.js";
 
 const BACKGROUND = [26, 30, 42];
 const BAND = [78, 92, 122];
-const FOREGROUND = [214, 222, 238];
-
-const DIGITS = {
-  0: ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
-  1: ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
-  2: ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
-  3: ["11111", "00010", "00100", "00010", "00001", "10001", "01110"],
-  4: ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
-  5: ["11111", "10000", "11110", "00001", "00001", "10001", "01110"],
-  6: ["01110", "10001", "10000", "11110", "10001", "10001", "01110"],
-  7: ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
-  8: ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
-  9: ["01110", "10001", "10001", "01111", "00001", "10001", "01110"],
-};
 
 function fill(rgb, count) {
   const out = new Uint8Array(rgb.length * count);
@@ -76,27 +62,3 @@ export async function placeholderPng(width = 640, height = 480) {
   return png(width, height, rows);
 }
 
-export async function chapterPng(number, width = 640, height = 480) {
-  const glyph = Array.from({ length: 7 }, (_, y) =>
-    String(number)
-      .split("")
-      .map((d) => DIGITS[d][y])
-      .join(" "),
-  );
-  const scale = Math.min(24, Math.floor((width * 2) / 3 / glyph[0].length), Math.floor((height * 2) / 3 / glyph.length));
-  const blockWidth = glyph[0].length * scale;
-  const blockHeight = glyph.length * scale;
-  const left = Math.floor((width - blockWidth) / 2);
-  const top = Math.floor((height - blockHeight) / 2);
-
-  const rows = Array.from({ length: top }, () => fill(BACKGROUND, width));
-  for (const glyphRow of glyph) {
-    const strip = concat(
-      [...glyphRow].map((ink) => fill(ink === "1" ? FOREGROUND : BACKGROUND, scale)),
-    );
-    const row = concat([fill(BACKGROUND, left), strip, fill(BACKGROUND, width - left - blockWidth)]);
-    for (let k = 0; k < scale; k++) rows.push(row);
-  }
-  for (let k = rows.length; k < height; k++) rows.push(fill(BACKGROUND, width));
-  return png(width, height, rows);
-}

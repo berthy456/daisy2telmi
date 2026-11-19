@@ -7,7 +7,7 @@ import struct
 import pytest
 
 from daisy2telmi import tts
-from daisy2telmi.images import chapter_png, placeholder_png
+from daisy2telmi.images import card_png, placeholder_png
 from daisy2telmi.extractor import Book
 from daisy2telmi.telmi_builder import (
     Announce,
@@ -153,12 +153,12 @@ def test_placeholder_png_is_a_valid_640x480_rgb_image() -> None:
     assert data.endswith(b"IEND\xaeB`\x82")
 
 
-def test_chapter_png_is_a_valid_image_that_differs_per_chapter() -> None:
+def test_card_png_is_a_valid_image_that_differs_per_part() -> None:
     for number in (1, 12):
-        data = chapter_png(number)
+        data = card_png(f"{number}/12")
         width, height = struct.unpack(">II", data[16:24])
         assert (width, height) == (640, 480)
-    assert chapter_png(1) != chapter_png(2)
+    assert card_png("1/12") != card_png("2/12")
 
 
 def test_a_card_can_carry_spoken_audio_and_autoplay() -> None:
@@ -172,6 +172,64 @@ def test_cards_stay_silent_by_default() -> None:
     nodes = build_nodes(SAMPLE)
     assert all(stage["audio"] is None for name, stage in nodes["stages"].items() if name.startswith("m"))
     assert all(stage["control"]["autoplay"] is False for name, stage in nodes["stages"].items() if name.startswith("m"))
+
+
+def test_a_card_snippet_is_the_opening_seconds_of_its_part(tmp_path, monkeypatch) -> None:
+    from daisy2telmi import audio
+    from daisy2telmi.extractor import AudioSegment, Chapter
+    from daisy2telmi.telmi_builder import CARD_SNIPPET_SECONDS, build_snippets
+
+    asked: list = []
+
+    def render(segments, dest, limit=None):
+        asked.append((dest.name, limit))
+        return "cut"
+
+    monkeypatch.setattr(audio, "render", render)
+    parts = [Chapter("", (AudioSegment(tmp_path / f"p{k}.mp3"),)) for k in range(3)]
+    assert build_snippets(parts, tmp_path) == ["c0.mp3", "c1.mp3", "c2.mp3"]
+    assert asked == [(f"c{k}.mp3", CARD_SNIPPET_SECONDS) for k in range(3)]
+
+
+def test_a_part_shorter_than_the_clip_gives_its_card_the_part_itself(tmp_path, monkeypatch) -> None:
+    """Cut to sentences, many parts are under three seconds: a second copy would be pure size."""
+    from daisy2telmi import audio
+    from daisy2telmi.extractor import AudioSegment, Chapter
+    from daisy2telmi.telmi_builder import CARD_SNIPPET_SECONDS, build_snippets
+
+    asked: list = []
+    monkeypatch.setattr(audio, "render", lambda segments, dest, limit=None: asked.append(dest.name) or "cut")
+    parts = [
+        Chapter("", (AudioSegment(tmp_path / "p.mp3", 0.0, CARD_SNIPPET_SECONDS - 1.0),)),
+        Chapter("", (AudioSegment(tmp_path / "p.mp3", 0.0, CARD_SNIPPET_SECONDS + 30.0),)),
+    ]
+    assert build_snippets(parts, tmp_path) == ["s0.mp3", "c1.mp3"]
+    assert asked == ["c1.mp3"]
+
+
+def test_one_failing_snippet_leaves_every_card_silent(tmp_path, monkeypatch) -> None:
+    from daisy2telmi import audio
+    from daisy2telmi.extractor import AudioSegment, Chapter
+    from daisy2telmi.telmi_builder import build_snippets
+
+    def refuse(segments, dest, limit=None):
+        raise audio.AudioError("no audio in that range")
+
+    monkeypatch.setattr(audio, "render", refuse)
+    parts = [Chapter("", (AudioSegment(tmp_path / "p.mp3"),)) for _ in range(2)]
+    assert build_snippets(parts, tmp_path) == [None, None]
+
+
+def test_the_description_lists_only_the_first_parts() -> None:
+    """A book cut to the sentence level has hundreds of them; Telmi-Sync shows this list."""
+    from daisy2telmi.extractor import Chapter
+    from daisy2telmi.telmi_builder import LISTED_PARTS
+
+    book = make_book(chapters=[Chapter(f"Part {k}", ()) for k in range(LISTED_PARTS + 5)])
+    description = build_metadata(book)["description"]
+    assert f"- Part {LISTED_PARTS - 1} ({LISTED_PARTS}/{LISTED_PARTS + 5})" in description
+    assert "... 5 more" in description
+    assert f"Part {LISTED_PARTS}" not in description
 
 
 def test_an_announcement_phrase_carries_the_chapter_number() -> None:

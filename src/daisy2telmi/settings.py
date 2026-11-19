@@ -16,6 +16,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 DEFAULTS: dict = {
+    "cut": "chapter",
     "language": "en",
     "announce": "prompt",
     "autoplay": False,

@@ -21,7 +21,7 @@ from tkinter import filedialog, ttk
 from . import audio, chapters, settings, tts
 from .cli import convert
 from .detector import DaisyPackError, open_pack
-from .extractor import extract
+from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES, text
 from .telmi_builder import Announce, slugify
 
@@ -58,6 +58,7 @@ class App:
         self.cover_var = tk.StringVar()
         self.force_var = tk.BooleanVar(value=False)
         self.language_var = tk.StringVar(value=self.options["language"])
+        self.cut = self.options["cut"]
         self.dropped: set[int] = set()
         self._labels: dict[str, tk.Widget] = {}
         self._build()
@@ -226,6 +227,7 @@ class App:
                 announce,
                 cover,
                 ",".join(str(number) for number in dropped) if dropped else None,
+                self.cut,
             ),
             daemon=True,
         ).start()
@@ -238,8 +240,9 @@ class App:
         announce: Announce,
         cover: Path | None,
         drop: str | None,
+        cut: str,
     ) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop)))
+        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut)))
 
     def _drain(self) -> None:
         while True:
@@ -273,56 +276,93 @@ class ChapterList:
         self.events: queue.Queue = queue.Queue()
         self.packs = contextlib.ExitStack()
         try:
-            self.book = extract(self.packs.enter_context(open_pack(source)))
+            self.pack = self.packs.enter_context(open_pack(source))
         except (DaisyPackError, OSError) as exc:
             self.top.destroy()
             app._append(f"ERROR: {exc}")
             return
 
-        self.info = chapters.describe(self.book, with_durations=False)
-        self.cache = (
-            Path(tempfile.gettempdir()) / "daisy2telmi-preview" / (slugify(self.book.title) or "pack")
-        )
-
+        self.cut = app.cut
+        self.reported = False
         grid = ttk.Frame(self.top, padding=12)
         grid.grid(sticky="nsew")
-        grid.columnconfigure(2, weight=1)
-        ttk.Label(grid, text=app.t("chapters_hint")).grid(
-            row=0, column=0, columnspan=5, sticky="w", pady=(0, 6)
-        )
+        grid.columnconfigure(0, weight=1)
 
-        self.keep: list[tk.BooleanVar] = []
-        self.sizes: list[ttk.Label] = []
-        self.play_buttons: list[ttk.Button] = []
-        for offset, info in enumerate(self.info):
-            row = offset + 1
-            box = tk.BooleanVar(value=info.number not in app.dropped)
-            self.keep.append(box)
-            ttk.Checkbutton(grid, variable=box).grid(row=row, column=0, sticky="w")
-            ttk.Label(grid, text=str(info.number)).grid(row=row, column=1, sticky="w", padx=(4, 8))
-            ttk.Label(grid, text=info.title).grid(row=row, column=2, sticky="w")
-            size = ttk.Label(grid, text="")
-            size.grid(row=row, column=3, sticky="e", padx=(12, 0))
-            self.sizes.append(size)
-            button = ttk.Button(
-                grid,
-                text=app.t("chapters_play"),
-                width=8,
-                command=lambda index=offset: self._play(index),
-            )
-            button.grid(row=row, column=4, sticky="e", padx=(12, 0))
-            self.play_buttons.append(button)
+        chooser = ttk.Frame(grid)
+        chooser.grid(row=0, column=0, sticky="w")
+        ttk.Label(chooser, text=app.t("cut_level")).pack(side="left")
+        for level in CUT_LEVELS:
+            ttk.Radiobutton(
+                chooser,
+                text=app.t(f"cut_{level}"),
+                value=level,
+                command=lambda chosen=level: self._choose(chosen),
+            ).pack(side="left", padx=(8, 0))
+        self.counts = ttk.Label(grid, text=app.t("cut_hint"))
+        self.counts.grid(row=1, column=0, sticky="w", pady=(2, 6))
+        ttk.Label(grid, text=app.t("chapters_hint")).grid(row=2, column=0, sticky="w", pady=(0, 6))
 
-        ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=len(self.info) + 1, column=0, columnspan=5, sticky="e", pady=(10, 0)
-        )
+        self.rows = ttk.Frame(grid)
+        self.rows.grid(row=3, column=0, sticky="nsew")
+        self._build()
         self.top.protocol("WM_DELETE_WINDOW", self._close)
 
         threading.Thread(target=self._measure, daemon=True).start()
         self.top.after(100, self._drain)
 
+    def _build(self) -> None:
+        """(Re)draw the part list for the level now chosen."""
+        for child in self.rows.winfo_children():
+            child.destroy()
+        self.book = extract(self.pack, self.cut)
+        self.info = chapters.describe(self.book, with_durations=False)
+        self.cache = (
+            Path(tempfile.gettempdir()) / "daisy2telmi-preview" / (slugify(self.book.title) or "pack")
+        )
+        self.keep: list[tk.BooleanVar] = []
+        self.sizes: list[ttk.Label] = []
+        self.play_buttons: list[ttk.Button] = []
+
+        self.rows.columnconfigure(2, weight=1)
+        for offset, info in enumerate(self.info):
+            box = tk.BooleanVar(value=info.number not in self.app.dropped)
+            self.keep.append(box)
+            ttk.Checkbutton(self.rows, variable=box).grid(row=offset, column=0, sticky="w")
+            ttk.Label(self.rows, text=str(info.number)).grid(row=offset, column=1, sticky="w", padx=(4, 8))
+            ttk.Label(self.rows, text=info.title).grid(row=offset, column=2, sticky="w")
+            size = ttk.Label(self.rows, text="")
+            size.grid(row=offset, column=3, sticky="e", padx=(12, 0))
+            self.sizes.append(size)
+            button = ttk.Button(
+                self.rows,
+                text=self.app.t("chapters_play"),
+                width=8,
+                command=lambda index=offset: self._play(index),
+            )
+            button.grid(row=offset, column=4, sticky="e", padx=(12, 0))
+            self.play_buttons.append(button)
+
+        ttk.Button(
+            self.rows, text=self.app.t("opt_close"), command=self._close
+        ).grid(row=len(self.info), column=0, columnspan=5, sticky="e", pady=(10, 0))
+
+    def _choose(self, level: str) -> None:
+        """A different level is a different book: the old part numbers mean nothing."""
+        if level == self.cut:
+            return
+        self.cut = level
+        self.app.cut = level
+        self.app.dropped = set()
+        self._build()
+        threading.Thread(target=self._measure, daemon=True).start()
+
     def _measure(self) -> None:
-        self.events.put(("sizes", chapters.describe(self.book)))
+        cut = self.cut
+        self.events.put(("sizes", (cut, chapters.describe(extract(self.pack, cut)))))
+        if not self.reported:
+            self.reported = True
+            books = {level: extract(self.pack, level) for level in CUT_LEVELS}
+            self.events.put(("counts", chapters.describe_levels(books)))
 
     def _play(self, index: int) -> None:
         for button in self.play_buttons:
@@ -346,12 +386,24 @@ class ChapterList:
             return
         while True:
             try:
-                kind, payload = self.events.get_nowait()
+                item = self.events.get_nowait()
             except queue.Empty:
                 break
+            kind, payload = item[0], item[1]
             if kind == "sizes":
-                for label, info in zip(self.sizes, payload):
+                cut, rows = payload
+                if cut != self.cut:
+                    continue  # a rebuild already replaced the rows these were measured for
+                for label, info in zip(self.sizes, rows):
                     label.configure(text=chapters.format_seconds(info.seconds))
+            elif kind == "counts":
+                self.counts.configure(
+                    text="   ".join(
+                        f"{self.app.t(f'cut_{row.level}')} {row.parts}"
+                        f" ({chapters.format_seconds(row.each)})"
+                        for row in payload
+                    )
+                )
             elif kind == "play":
                 try:
                     chapters.open_preview(payload)
@@ -367,6 +419,8 @@ class ChapterList:
         self.app.dropped = {
             info.number for info, box in zip(self.info, self.keep) if not box.get()
         }
+        self.app.options["cut"] = self.cut
+        settings.save(self.app.options)
         self.packs.close()
         self.top.destroy()
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from daisy2telmi.detector import detect
+from daisy2telmi.detector import DaisyPackError, detect
 from daisy2telmi.extractor import _npt, extract
 
 NCC = """<?xml version="1.0" encoding="utf-8"?>
@@ -128,3 +128,86 @@ def test_a_pack_whose_top_level_is_h2_splits_on_h2(tmp_path: Path) -> None:
 )
 def test_npt_parsing(raw, expected) -> None:
     assert _npt(raw) == expected
+
+
+SYNCED_NCC = """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><meta name="dc:title" content="Sample"/></head>
+  <body>
+    <h1 id="c1"><a href="b.smil#c1">Un</a></h1>
+    <h2 id="c11"><a href="c.smil#c11">1-1</a></h2>
+    <h1 id="c2"><a href="d.smil#c2">Deux</a></h1>
+  </body>
+</html>
+"""
+
+LYRICS = """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body>
+  <p id="s1">Le loup sortit de la foret.</p>
+  <p id="s2">Il cherchait de quoi manger.</p>
+  <p id="s3">Un agneau buvait a la riviere.</p>
+</body></html>
+"""
+
+
+def synced(*pairs: tuple[str, str, str, str]) -> str:
+    """SMIL whose every par pairs one clip with the line read over it."""
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n<smil><body><seq>\n'
+        + "\n".join(
+            f'<par><text src="text.html#{word}"/><audio src="{audio}"'
+            f' clip-begin="npt={begin}s" clip-end="npt={end}s"/></par>'
+            for word, audio, begin, end in pairs
+        )
+        + "\n</seq></body></smil>\n"
+    )
+
+
+@pytest.fixture()
+def marked(tmp_path: Path):
+    """A pack that synced its text: the source of all three cut levels."""
+    root = tmp_path / "pack"
+    root.mkdir()
+    (root / "ncc.html").write_text(SYNCED_NCC, encoding="utf-8")
+    (root / "text.html").write_text(LYRICS, encoding="utf-8")
+    (root / "b.smil").write_text(
+        synced(("s1", "one.mp3", "0", "10"), ("s2", "one.mp3", "10", "20")), encoding="utf-8"
+    )
+    (root / "c.smil").write_text(synced(("s3", "sub.mp3", "0", "5")), encoding="utf-8")
+    (root / "d.smil").write_text(synced(("s1", "two.mp3", "0", "8")), encoding="utf-8")
+    for name in ("one.mp3", "sub.mp3", "two.mp3"):
+        (root / name).write_bytes(b"\xff\xfb")
+    pack = detect(tmp_path)
+    assert pack is not None
+    return pack
+
+
+def test_the_chapter_card_shows_the_first_line_read_over_it(marked) -> None:
+    book = extract(marked, "chapter")
+    assert [c.text for c in book.chapters] == [
+        "Le loup sortit de la foret.",
+        "Le loup sortit de la foret.",
+    ]
+
+
+def test_the_paragraph_level_cuts_on_every_heading_the_pack_marks(marked) -> None:
+    book = extract(marked, "paragraph")
+    assert [c.title for c in book.chapters] == ["Un", "1-1", "Deux"]
+    assert [s.src.name for s in book.chapters[0].segments] == ["one.mp3"]
+    assert book.chapters[1].text == "Un agneau buvait a la riviere."
+
+
+def test_the_sentence_level_gives_one_part_per_synced_clip(marked) -> None:
+    book = extract(marked, "sentence")
+    assert [(c.title, c.text) for c in book.chapters] == [
+        ("Part 1", "Le loup sortit de la foret."),
+        ("Part 2", "Il cherchait de quoi manger."),
+        ("Part 3", "Un agneau buvait a la riviere."),
+        ("Part 4", "Le loup sortit de la foret."),
+    ]
+    assert [(s.begin, s.end) for s in book.chapters[1].segments] == [(10.0, 20.0)]
+
+
+def test_an_unknown_cut_level_is_refused(marked) -> None:
+    with pytest.raises(DaisyPackError, match="unknown cut level"):
+        extract(marked, "verse")

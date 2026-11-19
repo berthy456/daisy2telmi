@@ -33,7 +33,7 @@ function decodeEntryName(bytes) {
 function textOf(element) {
   let out = "";
   const walk = (node) => {
-    out += node.text ?? "";
+    if (node.tagName === "#text") out += node.value;
     for (const child of node.children) walk(child);
   };
   walk(element);
@@ -123,8 +123,12 @@ function metaValues(root) {
 
 export class DaisyError extends Error {}
 
+/** Where to cut the book: at its chapter headings, at every heading, or at every synced mark. */
+export const CUT_LEVELS = ["chapter", "paragraph", "sentence"];
+
 /** Entries as [{name, data}] from a DAISY 2.02 pack; returns the book structure. */
-export function extractBook(entries) {
+export function extractBook(entries, level = "chapter") {
+  if (!CUT_LEVELS.includes(level)) throw new DaisyError(`unknown cut level: ${level}`);
   const pack = findPack(entries);
   if (!pack) {
     if (findTelmiDir(entries)) {
@@ -161,16 +165,21 @@ export function extractBook(entries) {
   }
 
   const smilCache = new Map();
+  const audioOf = (element, smilName) => {
+    const src = element.get("src");
+    if (!src) return null;
+    const target = normalizePath(`${dirName(smilName)}/${decodeURIComponent(src)}`);
+    return byName.has(target) ? target : null;
+  };
+
   const smilSegments = (smilName) => {
     if (smilCache.has(smilName)) return smilCache.get(smilName);
     const root = parse(smilName);
     const found = [];
     if (root) {
       for (const audio of root.find("audio")) {
-        const src = audio.get("src");
-        if (!src) continue;
-        const target = normalizePath(`${dirName(smilName)}/${decodeURIComponent(src)}`);
-        if (!byName.has(target)) continue;
+        const target = audioOf(audio, smilName);
+        if (!target) continue;
         found.push({ src: target, begin: npt(audio.get("clip-begin")), end: npt(audio.get("clip-end")) });
       }
     }
@@ -178,6 +187,57 @@ export function extractBook(entries) {
     smilCache.set(smilName, result);
     return result;
   };
+
+  // The pack's own words at a `text.html#id` anchor, which is what a card can show.
+  const textCache = new Map();
+  const textAt = (src, base) => {
+    const raw = decodeURIComponent(src ?? "");
+    const hash = raw.indexOf("#");
+    const filePart = hash < 0 ? raw : raw.slice(0, hash);
+    const anchor = hash < 0 ? "" : raw.slice(hash + 1);
+    if (!filePart || !anchor) return "";
+    const name = normalizePath(`${base}/${filePart}`);
+    if (!textCache.has(name)) textCache.set(name, parse(name));
+    const root = textCache.get(name);
+    if (!root) return "";
+    let found = null;
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (!found && child.get("id") === anchor) found = child;
+        walk(child);
+      }
+    };
+    walk(root);
+    return found ? textOf(found).replace(/\s+/g, " ") : "";
+  };
+
+  // Each clip of a SMIL with the line the pack synced over it: the sentence level's parts.
+  const marksCache = new Map();
+  const smilMarks = (smilName) => {
+    if (marksCache.has(smilName)) return marksCache.get(smilName);
+    const root = parse(smilName);
+    const found = [];
+    if (root) {
+      for (const par of root.find("par")) {
+        const audio = par.find("audio")[0];
+        const target = audio ? audioOf(audio, smilName) : null;
+        if (!target) continue;
+        const words = par.find("text")[0];
+        found.push({
+          segments: [{ src: target, begin: npt(audio.get("clip-begin")), end: npt(audio.get("clip-end")) }],
+          text: textAt(words ? words.get("src") ?? "" : "", dirName(smilName)),
+        });
+      }
+    }
+    const result = found.length
+      ? found
+      : smilSegments(smilName).map((segment) => ({ segments: [segment], text: "" }));
+    marksCache.set(smilName, result);
+    return result;
+  };
+
+  // The first words read out in a part; a section number read aloud first is not worth a card.
+  const openingText = (marks) => marks.find((mark) => mark.text.length >= 5)?.text ?? marks[0]?.text ?? "";
 
   const chapterLevel = Math.min(...entries_.filter((e) => !e.frontMatter).map((e) => e.level), 6);
   const chapters = [];
@@ -191,10 +251,16 @@ export function extractBook(entries) {
     const segments = smilSegments(smilName);
     if (entry.frontMatter) {
       frontMatter = frontMatter.concat(segments);
-    } else if (entry.level <= chapterLevel || chapters.length === 0) {
-      chapters.push({ title: entry.title || `Chapter ${chapters.length + 1}`, segments: [...segments] });
-    } else {
+    } else if (level === "sentence") {
+      for (const mark of smilMarks(smilName)) chapters.push({ title: "", segments: [...mark.segments], text: mark.text });
+    } else if (level === "chapter" && entry.level > chapterLevel && chapters.length > 0) {
       chapters[chapters.length - 1].segments.push(...segments);
+    } else {
+      chapters.push({
+        title: entry.title || `Part ${chapters.length + 1}`,
+        segments: [...segments],
+        text: openingText(smilMarks(smilName)),
+      });
     }
   }
 
@@ -206,7 +272,9 @@ export function extractBook(entries) {
     narrator: metadata.get("ncc:narrator") || null,
     identifier: metadata.get("dc:identifier") || null,
     totalTime: parseClock(metadata.get("ncc:totaltime")),
-    chapters: chapters.filter((c) => c.segments.length).map((c) => ({ title: c.title, segments: merge(c.segments) })),
+    chapters: chapters
+      .filter((c) => c.segments.length)
+      .map((c, index) => ({ title: c.title || `Part ${index + 1}`, text: c.text ?? "", segments: merge(c.segments) })),
     frontMatter: merge(frontMatter),
   };
 }

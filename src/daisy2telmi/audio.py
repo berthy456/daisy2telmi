@@ -174,15 +174,20 @@ def _trim_filter(segment: AudioSegment) -> str:
     return ",".join(steps)
 
 
-def render(segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | Path) -> str:
+def render(
+    segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | Path, limit: float | None = None
+) -> str:
     """Render `segments`, in order, into one MP3 at `dest`.
+
+    `limit` keeps only the first so many seconds, which is what turns a part into
+    the sound a card plays; a limited render always goes through the encoder.
 
     Returns "joined" when the clips went in as they were, "encoded" when they were
     decoded and rewritten to the Telmi spec.
     """
     if not segments:
         raise AudioError(f"refusing to render an empty scene audio for {dest}")
-    if _copyable(segments):
+    if limit is None and _copyable(segments):
         log.info("joining %d whole MP3 clip(s) without re-encoding", len(segments))
         _copy_concat([Path(segment.src) for segment in segments], dest)
         return "joined"
@@ -214,8 +219,10 @@ def render(segments: list[AudioSegment] | tuple[AudioSegment, ...], dest: str | 
         "libmp3lame",
         "-b:a",
         BITRATE,
-        str(dest),
     ]
+    if limit is not None:
+        args += ["-t", f"{limit:.3f}"]
+    args.append(str(dest))
     _run(args, f"could not render {Path(dest).name}")
     return "encoded"
 

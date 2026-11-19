@@ -13,10 +13,15 @@ from pathlib import Path
 from typing import Sequence
 
 from . import audio, images, tts
-from .extractor import Book
+from .extractor import AudioSegment, Book, Chapter
 from .i18n import language
 
 log = logging.getLogger(__name__)
+
+CARD_SNIPPET_SECONDS = 3.0
+# A book cut to the sentence level has hundreds of parts; Telmi-Sync shows this
+# list, so it stops short rather than filling the story's description.
+LISTED_PARTS = 30
 
 _UUID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://wiki.telmi.fr/developments/daisy2telmi")
 
@@ -106,10 +111,10 @@ def build_metadata(book: Book) -> dict:
         "version": 0,
         "age": 0,
     }
-    details = [
-        f"{chapter.title} ({index + 1}/{len(book.chapters)})"
-        for index, chapter in enumerate(book.chapters)
-    ]
+    shown = book.chapters[:LISTED_PARTS]
+    details = [f"{chapter.title} ({index + 1}/{len(book.chapters)})" for index, chapter in enumerate(shown)]
+    if len(book.chapters) > len(shown):
+        details.append(f"... {len(book.chapters) - len(shown)} more")
     credits = [
         f"{label}: {value}"
         for label, value in (
@@ -208,11 +213,45 @@ def build_card_audio(
     return cards, len(cards)
 
 
+def _span(segments: Sequence[AudioSegment]) -> float | None:
+    """Seconds the segments cover, or None when the pack left a range open."""
+    total = 0.0
+    for segment in segments:
+        if segment.begin is None or segment.end is None:
+            return None
+        total += segment.end - segment.begin
+    return total
+
+
+def build_snippets(chapters: Sequence[Chapter], audios: Path) -> list[str | None]:
+    """The first seconds of each part, so a card can be told apart by ear.
+
+    A book cut to the sentence level has hundreds of parts, and no word in any
+    language would say which one a card is; its own opening sound does. A part
+    shorter than the clip gets no second copy: its card plays the part.
+    """
+    cards: list[str | None] = []
+    for k, chapter in enumerate(chapters):
+        span = _span(chapter.segments)
+        if span is not None and span <= CARD_SNIPPET_SECONDS:
+            cards.append(f"s{k}.mp3")
+            continue
+        name = f"c{k}.mp3"
+        try:
+            audio.render(chapter.segments, audios / name, limit=CARD_SNIPPET_SECONDS)
+        except audio.AudioError as exc:
+            log.warning("cards stay silent: %s", exc)
+            return [None] * len(chapters)
+        cards.append(name)
+    return cards
+
+
 def build_story(
     book: Book,
     out_dir: Path,
     announce: Announce | None = None,
     cover: Path | None = None,
+    cut: str = "chapter",
 ) -> StoryReport:
     """Render every chapter to `audios/` and write the story's JSON files and images.
 
@@ -227,19 +266,26 @@ def build_story(
     audios.mkdir(parents=True, exist_ok=True)
     scene.mkdir(parents=True, exist_ok=True)
 
-    chapter_names = [f"s{k}" for k in range(len(book.chapters))]
+    count = len(book.chapters)
+    chapter_names = [f"s{k}" for k in range(count)]
     modes = set()
-    for name, index, chapter in zip(chapter_names, range(len(book.chapters)), book.chapters):
+    for name, index, chapter in zip(chapter_names, range(count), book.chapters):
         log.info("rendering %s (%d audio clip group(s)) <- %s", name, len(chapter.segments), chapter.title)
         modes.add(audio.render(chapter.segments, audios / f"{name}.mp3"))
         if cover is None:
-            (scene / f"m{index}.png").write_bytes(images.chapter_png(index + 1))
+            label = images.card_label(announce.language if announce else "en", index + 1, count, cut == "chapter")
+            (scene / f"m{index}.png").write_bytes(images.card_png(label, chapter.text))
 
-    cards = [None] * len(book.chapters)
+    cards = [None] * count
     spoken = 0
     if announce is not None and announce.mode != "off":
-        log.info("speaking %d chapter card(s) in %s", len(book.chapters), language(announce.language).name)
-        cards, spoken = build_card_audio(len(book.chapters), announce, audios)
+        if cut == "chapter":
+            log.info("speaking %d chapter card(s) in %s", count, language(announce.language).name)
+            cards, spoken = build_card_audio(count, announce, audios)
+        else:
+            log.info("playing the first %.0f s of each of the %d part(s) on its card", CARD_SNIPPET_SECONDS, count)
+            cards = build_snippets(book.chapters, audios)
+            spoken = len(cards)
 
     # The player plays title.mp3 when the story is selected, so the pack's own
     # spoken title belongs there rather than in a second stage inside the story.
@@ -253,12 +299,11 @@ def build_story(
         audio.render_silence(title_path, 1.0)
         title_source = "generated silence"
 
-    count = len(book.chapters)
     if cover is not None:
         code = announce.language if announce is not None else "en"
-        labels = [images.card_label(code, k + 1, count) for k in range(count)]
+        labels = [images.card_label(code, k + 1, count, cut == "chapter") for k in range(count)]
         log.info("drawing %d card(s) from the cover %s", count, cover.name)
-        images.write_cover(cover, out_dir, labels)
+        images.write_cover(cover, out_dir, labels, [chapter.text for chapter in book.chapters])
     else:
         (out_dir / images.TITLE_IMAGE).write_bytes(images.placeholder_png())
         (out_dir / images.COVER_IMAGE).write_bytes(images.placeholder_png(*images.COVER_SIZE))

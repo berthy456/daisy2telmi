@@ -33,24 +33,49 @@ class ChapterInfo:
     title: str
     seconds: float | None
     clips: int
+    text: str = ""
 
 
 def describe(book: Book, with_durations: bool = True) -> list[ChapterInfo]:
     """One row per chapter. `seconds` is None when ffmpeg cannot read a source file."""
     rows: list[ChapterInfo] = []
     for number, chapter in enumerate(book.chapters, start=1):
-        total: float | None = None
-        if with_durations:
-            total = 0.0
-            for segment in chapter.segments:
-                seconds = audio.duration(segment.src)
-                if seconds is None:
-                    total = None
-                    break
-                if segment.end is not None:
-                    seconds = min(seconds, segment.end)
-                total += max(0.0, seconds - (segment.begin or 0.0))
-        rows.append(ChapterInfo(number, chapter.title, total, len(chapter.segments)))
+        total = chapter_seconds(chapter) if with_durations else None
+        rows.append(ChapterInfo(number, chapter.title, total, len(chapter.segments), chapter.text))
+    return rows
+
+
+@dataclass(frozen=True)
+class LevelInfo:
+    level: str
+    parts: int
+    each: float | None
+    labelled: bool
+
+
+def chapter_seconds(chapter: Chapter) -> float | None:
+    """How long one part plays, or None when ffmpeg cannot read one of its clips."""
+    total = 0.0
+    for segment in chapter.segments:
+        seconds = audio.duration(segment.src)
+        if seconds is None:
+            return None
+        if segment.end is not None:
+            seconds = min(seconds, segment.end)
+        total += max(0.0, seconds - (segment.begin or 0.0))
+    return total
+
+
+def describe_levels(books: dict[str, Book]) -> list[LevelInfo]:
+    """One row per cut level: how many parts it gives, their average length, and
+    whether the pack's own synced text can put words on the cards."""
+    rows: list[LevelInfo] = []
+    for level, book in books.items():
+        totals = [chapter_seconds(chapter) for chapter in book.chapters]
+        each = None if None in totals else sum(t for t in totals if t) / max(1, len(totals))
+        rows.append(
+            LevelInfo(level, len(book.chapters), each, any(chapter.text for chapter in book.chapters))
+        )
     return rows
 
 

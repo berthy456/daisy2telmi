@@ -10,7 +10,7 @@ from pathlib import Path
 from . import __version__, audio, chapters, images, settings, tts
 from .chapters import ChapterError
 from .detector import DaisyPackError, open_pack
-from .extractor import extract
+from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES
 from .telmi_builder import (
     Announce,
@@ -47,6 +47,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     look = parser.add_argument_group("before converting")
     look.add_argument("--list", action="store_true", help="print the pack's chapters and stop")
+    look.add_argument(
+        "--cut",
+        choices=CUT_LEVELS,
+        help="where to cut the book: at its chapters (default), at every paragraph the pack "
+        "marks, or at every sentence it synced",
+    )
     look.add_argument(
         "--preview",
         metavar="FOLDER",
@@ -102,26 +108,47 @@ def announce_options(args: argparse.Namespace) -> Announce:
     )
 
 
-def inspect(input_path: Path, preview_dir: Path | None = None, drop: str | None = None) -> int:
-    """Print the pack's chapters, and render one MP3 per chapter when asked for it."""
+def cut_level(args: argparse.Namespace) -> str:
+    """Saved cut level, overridden by --cut."""
+    return args.cut or settings.load()["cut"]
+
+
+def inspect(
+    input_path: Path,
+    preview_dir: Path | None = None,
+    drop: str | None = None,
+    cut: str = "chapter",
+) -> int:
+    """Print what each cut level gives, then the parts at the chosen one."""
     try:
         with open_pack(input_path) as pack:
             log.info("pack root: %s", pack.root)
-            book = extract(pack)
-            if drop:
-                book = chapters.drop_chapters(book, chapters.parse_selection(drop))
+            books = {level: extract(pack, level) for level in CUT_LEVELS}
+            book = books[cut]
             if not book.chapters:
                 log.error("no chapter with audio found in %s", input_path)
                 return 2
-            log.info("%s: %d chapter(s)", book.title, len(book.chapters))
+            log.info("%s: %d part(s) at the %s level", book.title, len(book.chapters), cut)
+            for row in chapters.describe_levels(books):
+                log.info(
+                    " %s %-9s %4d part(s), %s each%s",
+                    "*" if row.level == cut else " ",
+                    row.level,
+                    row.parts,
+                    chapters.format_seconds(row.each),
+                    "" if row.labelled else "  (no synced text to label the cards)",
+                )
+            if drop:
+                book = chapters.drop_chapters(book, chapters.parse_selection(drop))
             rows = chapters.describe(book)
             for row in rows:
                 log.info(
-                    "  %2d  %s  %s  %d clip(s)",
+                    "  %2d  %s  %s  %d clip(s)%s",
                     row.number,
                     chapters.format_seconds(row.seconds),
                     row.title,
                     row.clips,
+                    f"  {row.text[:36]}" if row.text else "",
                 )
             if preview_dir is None:
                 log.info("to listen to one: --preview FOLDER")
@@ -145,6 +172,7 @@ def convert(
     announce: Announce | None = None,
     cover: Path | None = None,
     drop: str | None = None,
+    cut: str = "chapter",
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     try:
@@ -154,11 +182,16 @@ def convert(
             return 2
         with open_pack(input_path) as pack:
             log.info("pack root: %s", pack.root)
-            book = extract(pack)
+            book = extract(pack, cut)
             if not book.chapters:
                 log.error("no chapter with audio found in %s", input_path)
                 return 2
-            log.info("found %d chapter(s): %s", len(book.chapters), ", ".join(c.title for c in book.chapters))
+            log.info(
+                "found %d part(s) at the %s level: %s",
+                len(book.chapters),
+                cut,
+                ", ".join(c.title for c in book.chapters),
+            )
             if drop:
                 book = chapters.drop_chapters(book, chapters.parse_selection(drop))
                 log.info("dropped %s: converting %d chapter(s)", drop, len(book.chapters))
@@ -170,7 +203,7 @@ def convert(
                 log.error("%s is not empty; pass --force to overwrite", target)
                 return 2
             target.mkdir(parents=True, exist_ok=True)
-            report = build_story(book, target, announce, cover)
+            report = build_story(book, target, announce, cover, cut)
             zip_path = write_story_zip(target, target.parent)
     except ChapterError as exc:
         log.error("%s", exc)
@@ -207,8 +240,10 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     if args.list or args.preview:
-        return inspect(args.input, args.preview, args.drop)
-    return convert(args.input, args.output, args.force, announce_options(args), args.cover, args.drop)
+        return inspect(args.input, args.preview, args.drop, cut_level(args))
+    return convert(
+        args.input, args.output, args.force, announce_options(args), args.cover, args.drop, cut_level(args)
+    )
 
 
 if __name__ == "__main__":

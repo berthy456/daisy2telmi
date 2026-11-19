@@ -28,8 +28,15 @@ class AudioSegment:
 
 @dataclass(frozen=True)
 class Chapter:
+    """One part of the book at the chosen cut level.
+
+    `text` is what the pack's own synced text says at the start of the part, which
+    is what a card can show when the part has no title of its own.
+    """
+
     title: str
     segments: tuple[AudioSegment, ...]
+    text: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,10 @@ class _TocEntry:
 class _Draft:
     title: str
     segments: list[AudioSegment] = field(default_factory=list)
+    text: str = ""
+
+
+CUT_LEVELS = ("chapter", "paragraph", "sentence")
 
 
 _PARSER = etree.XMLParser(
@@ -146,13 +157,22 @@ def _merge(segments: list[AudioSegment]) -> list[AudioSegment]:
     return merged
 
 
-def _smil_segments(smil: Path, cache: dict[Path, tuple[AudioSegment, ...]]) -> tuple[AudioSegment, ...]:
+@dataclass
+class _Marks:
+    """Parsed SMIL and XHTML, kept once per pack so the three cut levels share one read."""
+
+    segments: dict[Path, tuple[AudioSegment, ...]] = field(default_factory=dict)
+    parts: dict[Path, tuple[Chapter, ...]] = field(default_factory=dict)
+    text: dict[Path, etree._Element | None] = field(default_factory=dict)
+
+
+def _smil_segments(smil: Path, marks: _Marks) -> tuple[AudioSegment, ...]:
     """Resolve every `<audio>` referenced by a SMIL file, in playback order."""
-    if smil in cache:
-        return cache[smil]
+    if smil in marks.segments:
+        return marks.segments[smil]
     root = _parse_xml(smil)
     if root is None:
-        cache[smil] = ()
+        marks.segments[smil] = ()
         return ()
     found: list[AudioSegment] = []
     for element in root.iter():
@@ -167,8 +187,69 @@ def _smil_segments(smil: Path, cache: dict[Path, tuple[AudioSegment, ...]]) -> t
             continue
         found.append(AudioSegment(target, _npt(element.get("clip-begin")), _npt(element.get("clip-end"))))
     result = tuple(_merge(found))
-    cache[smil] = result
+    marks.segments[smil] = result
     return result
+
+
+def _text_at(src: str, base: Path, marks: _Marks) -> str:
+    """The pack's own words at a `gonxhtml.html#id` anchor, for a card to show."""
+    file_part, _, anchor = unquote(src).partition("#")
+    if not file_part:
+        return ""
+    path = (base / file_part).resolve()
+    if path not in marks.text:
+        marks.text[path] = _parse_xml(path)
+    root = marks.text[path]
+    if root is None or not anchor:
+        return ""
+    found = root.xpath(f'//*[@id="{anchor}"]')
+    if not found:
+        return ""
+    return " ".join("".join(found[0].itertext()).split())
+
+
+def _smil_parts(smil: Path, marks: _Marks) -> tuple[Chapter, ...]:
+    """The SMIL's audio clips, each paired with the synced text read over it.
+
+    A DAISY 2.02 audio book marks every `<par>` it synced, so this is where the
+    sentence-level cuts come from; a pack that synced nothing gives one part per
+    clip with no text.
+    """
+    if smil in marks.parts:
+        return marks.parts[smil]
+    root = _parse_xml(smil)
+    found: list[Chapter] = []
+    if root is not None:
+        for element in root.iter():
+            if _localname(element) != "audio":
+                continue
+            src = element.get("src")
+            if not src:
+                continue
+            target = (smil.parent / unquote(src)).resolve()
+            if not target.is_file():
+                continue
+            par = element.getparent()
+            while par is not None and _localname(par) != "par":
+                par = par.getparent()
+            words = ""
+            if par is not None:
+                text_el = next((c for c in par.iter() if _localname(c) == "text"), None)
+                if text_el is not None:
+                    words = _text_at(text_el.get("src") or "", smil.parent, marks)
+            found.append(
+                Chapter(
+                    title="",
+                    segments=(
+                        AudioSegment(target, _npt(element.get("clip-begin")), _npt(element.get("clip-end"))),
+                    ),
+                    text=words,
+                )
+            )
+    if not found:
+        found = [Chapter(title="", segments=(segment,)) for segment in _smil_segments(smil, marks)]
+    marks.parts[smil] = tuple(found)
+    return marks.parts[smil]
 
 
 def _split_target(href: str) -> Path | None:
@@ -223,10 +304,16 @@ def _ncx_entries(root: etree._Element, level: int = 1) -> list[_TocEntry]:
     return entries
 
 
+def _opening_text(parts: tuple[Chapter, ...]) -> str:
+    """The first words spoken in a part, skipping a read-out section number."""
+    texts = [part.text for part in parts if part.text]
+    return next((t for t in texts if len(t) >= 5), texts[0] if texts else "")
+
+
 def _group(
-    entries: list[_TocEntry], pack_root: Path, cache: dict[Path, tuple[AudioSegment, ...]]
+    entries: list[_TocEntry], pack_root: Path, marks: _Marks, level: str = "chapter"
 ) -> tuple[list[_Draft], list[AudioSegment]]:
-    """Attach each TOC item to the chapter opened by the shallowest heading."""
+    """Cut the book at `level`: one part per chapter heading, per TOC entry, or per synced mark."""
     chapters: list[_Draft] = []
     front_matter: list[AudioSegment] = []
     chapter_level = min((e.level for e in entries if not e.is_front_matter), default=1)
@@ -238,18 +325,34 @@ def _group(
         if not resolved.is_file():
             log.warning("TOC entry %r points at a missing SMIL: %s", entry.title, smil)
             continue
-        segments = _smil_segments(resolved, cache)
         if entry.is_front_matter:
-            front_matter.extend(segments)
-        elif entry.level <= chapter_level or not chapters:
-            chapters.append(_Draft(title=entry.title or f"Chapter {len(chapters) + 1}", segments=list(segments)))
+            front_matter.extend(_smil_segments(resolved, marks))
+            continue
+        parts = _smil_parts(resolved, marks)
+        if level == "sentence":
+            chapters.extend(_Draft(title="", segments=list(p.segments), text=p.text) for p in parts)
+        elif level == "chapter" and entry.level > chapter_level and chapters:
+            chapters[-1].segments.extend(_smil_segments(resolved, marks))
         else:
-            chapters[-1].segments.extend(segments)
+            chapters.append(
+                _Draft(
+                    title=entry.title or f"Part {len(chapters) + 1}",
+                    segments=list(_smil_segments(resolved, marks)),
+                    text=_opening_text(parts),
+                )
+            )
     return chapters, _merge(front_matter)
 
 
-def extract(pack: DaisyPack) -> Book:
-    """Build the chapter list for a DAISY 2.02 audio pack."""
+def extract(pack: DaisyPack, level: str = "chapter") -> Book:
+    """Build the part list for a DAISY 2.02 audio pack, cut at `level`.
+
+    `chapter` follows the top TOC headings, `paragraph` every TOC heading, and
+    `sentence` every mark the pack itself synced; a pack with no synced text
+    gives the same parts at `sentence` as at `paragraph`, only silent cards.
+    """
+    if level not in CUT_LEVELS:
+        raise DaisyPackError(f"unknown cut level: {level}")
     toc = pack.toc_file
     if toc is None:
         raise DaisyPackError("pack has no table of contents")
@@ -267,10 +370,16 @@ def extract(pack: DaisyPack) -> Book:
             for key, value in _opf_meta(opf_root).items():
                 metadata.setdefault(f"dc:{key}", value)
 
-    cache: dict[Path, tuple[AudioSegment, ...]] = {}
-    drafts, front_matter = _group(entries, pack.root, cache)
+    marks = _Marks()
+    drafts, front_matter = _group(entries, pack.root, marks, level)
     chapters = tuple(
-        Chapter(title=d.title, segments=tuple(_merge(d.segments))) for d in drafts if d.segments
+        Chapter(
+            title=d.title or f"Part {index + 1}",
+            segments=tuple(_merge(d.segments)),
+            text=d.text,
+        )
+        for index, d in enumerate(drafts)
+        if d.segments
     )
 
     return Book(

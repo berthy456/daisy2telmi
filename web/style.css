@@ -139,7 +139,8 @@ input[type="file"] {
   clip-path: inset(50%);
 }
 
-.cover {
+.cover,
+.cut {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--line);
@@ -153,12 +154,20 @@ input[type="file"] {
   flex-wrap: wrap;
 }
 
-.cover-row {
+.cover-row,
+.cut-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
   margin-top: 0.5rem;
+}
+
+.cut-row label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--ink);
 }
 
 .cover-row input[type="url"] {

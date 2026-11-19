@@ -154,7 +154,7 @@ def three_chapters(app: gui.App, monkeypatch, tmp_path) -> Book:
         ),
     )
     monkeypatch.setattr(gui, "open_pack", lambda path: contextlib.nullcontext(object()))
-    monkeypatch.setattr(gui, "extract", lambda pack: book)
+    monkeypatch.setattr(gui, "extract", lambda pack, level="chapter": book)
     monkeypatch.setattr(gui.audio, "duration", lambda src: 12.5)
     return book
 
@@ -200,6 +200,49 @@ def test_keeping_every_chapter_sends_no_selection(app: gui.App, three_chapters, 
     app._start()
     app._drain()
     assert seen[0][5] is None
+
+
+def test_choosing_a_cut_level_redraws_the_parts(
+    app: gui.App, three_chapters, monkeypatch, tmp_path
+) -> None:
+    """Part numbers from one level mean nothing at another, so the list is rebuilt."""
+    sentences = Book(
+        "Wesh la fee",
+        tuple(Chapter(f"Phrase {n}", (AudioSegment(tmp_path / f"s{n}.mp3"),)) for n in (1, 2)),
+    )
+    monkeypatch.setattr(
+        gui, "extract", lambda pack, level="chapter": three_chapters if level == "chapter" else sentences
+    )
+
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    assert [box.get() for box in page.keep] == [True, True, True]
+    page.keep[0].set(False)
+
+    page._choose("sentence")
+    assert [box.get() for box in page.keep] == [True, True]
+    assert page.info[1].title == "Phrase 2"
+    assert app.dropped == set()
+    assert app.cut == "sentence"
+
+
+def test_the_chosen_cut_level_reaches_the_conversion(
+    app: gui.App, three_chapters, monkeypatch, tmp_path
+) -> None:
+    seen: list = []
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+    monkeypatch.setattr(gui.settings, "save", lambda options: None)
+
+    page = gui.ChapterList(app, Path("/tmp/pack.zip"))
+    page._choose("paragraph")
+    page._close()
+    assert app.options["cut"] == "paragraph"
+
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app._start()
+    app._drain()
+    assert seen[0][6] == "paragraph"
 
 
 def test_a_pack_the_window_cannot_open_is_reported(app: gui.App, monkeypatch) -> None:
