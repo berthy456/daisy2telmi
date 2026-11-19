@@ -15,10 +15,35 @@ import sys
 from pathlib import Path
 
 
+def _write_wav(path: str, wav, sample_rate: int) -> None:
+    """Write the model's float tensor as a WAV by hand: recent torchaudio routes
+    save() through TorchCodec, a package chatterbox-tts does not install."""
+    from wave import open as open_wav
+
+    import numpy as np
+
+    samples = np.asarray(getattr(wav, "detach", lambda: wav)().cpu().numpy(), dtype=np.float32).reshape(-1)
+    with open_wav(path, "wb") as handle:
+        handle.setframerate(sample_rate)
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.writeframes((np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes())
+
+
 def speak(manifest: dict) -> None:
+    import perth
     import torch
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-    from torchaudio import save
+
+    if perth.PerthImplicitWatermarker is None:
+        # perth loads its network through pkg_resources, which venvs on recent
+        # Pythons no longer ship, and Chatterbox cannot build a model at all
+        # while that class is None. The dummy leaves the audio alone.
+        print(
+            "no Perth watermark model (pip install setuptools in this Python for one); speaking without it",
+            file=sys.stderr,
+        )
+        perth.PerthImplicitWatermarker = perth.DummyWatermarker
 
     device = manifest.get("device")
     if not device:
@@ -33,7 +58,7 @@ def speak(manifest: dict) -> None:
     extra = {"audio_prompt_path": manifest["clip"]} if manifest.get("clip") else {}
     for phrase, out in zip(manifest["phrases"], manifest["outs"]):
         wav = model.generate(phrase, language_id=manifest["lang"], **extra)
-        save(out, wav, model.sr)
+        _write_wav(out, wav, model.sr)
 
 
 def main(argv: list[str]) -> int:
