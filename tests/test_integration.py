@@ -353,13 +353,23 @@ def _png_size(path: Path) -> tuple[int, int]:
     return struct.unpack(">II", path.read_bytes()[16:24])
 
 
+def _story(out: Path) -> Path:
+    """The story folder a run wrote, whichever way round the folder listing came."""
+    return next(entry for entry in out.iterdir() if entry.is_dir() and not entry.name.endswith("_merlin"))
+
+
+def _card(out: Path) -> Path:
+    """The Merlin card folder, which a `--format merlin` run leaves beside the story."""
+    return next(entry for entry in out.iterdir() if entry.is_dir() and entry.name.endswith("_merlin"))
+
+
 @requires_pack
 def test_each_format_draws_at_its_own_screen(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     for player in FORMATS:
         out = tmp_path / f"out-{player}"
         assert main([str(PACK), str(out), "--format", player]) == 0
-        story = next(entry for entry in out.iterdir() if entry.is_dir())
+        story = _story(out)
         scene, cover_size = images.screen(player)
         assert _png_size(story / "title.png") == scene, player
         assert _png_size(story / "cover.png") == cover_size, player
@@ -377,20 +387,13 @@ def test_no_lunii_archive_is_written_unless_asked(tmp_path, monkeypatch) -> None
 CHAPTER_TITLES = ["一", "二", "三", "四", "五", "六"]
 
 
-def _merlin(out: Path) -> tuple[Path, Path]:
-    """The Telmi story and the card folder the Merlin run left beside it."""
-    story = next(entry for entry in out.iterdir() if entry.is_dir() and not entry.name.endswith("_merlin"))
-    card = next(entry for entry in out.iterdir() if entry.is_dir() and entry.name.endswith("_merlin"))
-    return story, card
-
-
 @requires_pack
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_the_merlin_format_writes_a_card_of_flat_named_files(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     out = tmp_path / "out"
     assert main([str(PACK), str(out), "--format", "merlin"]) == 0
-    story, card = _merlin(out)
+    story, card = _story(out), _card(out)
 
     items = merlin.read_playlist(card / merlin.PLAYLIST)
     root = next(item for item in items if item.kind == merlin.KIND_ROOT)
@@ -418,7 +421,7 @@ def test_merlin_audio_is_the_cards_spec_and_starts_with_its_spoken_title(tmp_pat
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     out = tmp_path / "out"
     assert main([str(PACK), str(out), "--format", "merlin"]) == 0
-    story, card = _merlin(out)
+    story, card = _story(out), _card(out)
     parts = [item for item in merlin.read_playlist(card / merlin.PLAYLIST) if item.kind == merlin.KIND_AUDIO]
     assert len(parts) == EXPECTED_CHAPTERS
 
@@ -461,7 +464,7 @@ def test_merlin_merge_keeps_the_cards_own_records_and_joins_our_story_to_them(tm
 
     out = tmp_path / "out"
     assert main([str(PACK), str(out), "--format", "merlin", "--merlin-merge", str(card_of_the_device)]) == 0
-    _, card = _merlin(out)
+    card = _card(out)
 
     items = merlin.read_playlist(card / merlin.PLAYLIST)
     assert [(item.id, item.kind, item.title) for item in items[:3]] == [
