@@ -457,6 +457,26 @@ def test_the_chosen_format_reaches_the_conversion(app: gui.App, monkeypatch, tmp
     assert seen[0][7] == "lunii"
 
 
+def test_night_mode_is_offered_only_for_the_lunii(app: gui.App, tmp_path, monkeypatch) -> None:
+    """The Telmi player has no per-story night-mode flag, so the box would lie there."""
+    seen: list = []
+    monkeypatch.setattr(gui.settings, "save", lambda options: None)
+    monkeypatch.setattr(gui, "convert", lambda *args: seen.append(args) or 0)
+
+    assert app.night_box.instate(["disabled"])
+    app.format_var.set("lunii")
+    app._pick_format()
+    assert app.night_box.instate(["!disabled"])
+
+    (tmp_path / "pack.zip").write_bytes(b"PK")
+    app.pack_var.set(str(tmp_path / "pack.zip"))
+    app.out_var.set(str(tmp_path / "out"))
+    app._start()
+    app._drain()
+    assert seen[0][7] == "lunii"
+    assert seen[0][9] is True
+
+
 def test_the_window_offers_every_player(app: gui.App) -> None:
     assert [app.t(f"fmt_{player}") for player in gui.FORMATS] == ["Telmi", "Lunii (4 greys)", "Flam"]
 

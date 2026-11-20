@@ -25,12 +25,15 @@ const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
 const cropRow = document.getElementById("crop-row");
 const cropInputs = [...document.querySelectorAll('input[name="crop"]')];
 const formatInputs = [...document.querySelectorAll('input[name="format"]')];
+const nightRow = document.getElementById("night-row");
+const nightInput = document.getElementById("night-mode");
 
 const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffer());
 const STORED_LANGUAGE = "daisy2telmi.language";
 const STORED_CUT = "daisy2telmi.cut";
 const STORED_FORMAT = "daisy2telmi.format";
 const STORED_CROP = "daisy2telmi.crop";
+const STORED_NIGHT = "daisy2telmi.night";
 // The summary lists the parts it starts; a book cut to the sentence level has hundreds.
 const LISTED_PARTS = 30;
 
@@ -40,6 +43,7 @@ let lang = "en";
 let cut = "chapter";
 let crop = "center";
 let format = "telmi";
+let night = true;
 let cropUrls = [];
 
 const t = (key, values) => text(lang, key, values);
@@ -100,9 +104,25 @@ function startFormat() {
     input.addEventListener("change", () => {
       format = input.value;
       remember(STORED_FORMAT, format);
+      showNight();
       refreshCrops();
     });
   }
+  showNight();
+}
+
+/** Night mode is a flag of the Lunii archive, so the box only shows for that player. */
+function showNight() {
+  nightRow.hidden = format !== "lunii";
+}
+
+function startNight() {
+  night = saved(STORED_NIGHT) !== "0";
+  nightInput.checked = night;
+  nightInput.addEventListener("change", () => {
+    night = nightInput.checked;
+    remember(STORED_NIGHT, night ? "1" : "0");
+  });
 }
 
 function startCrop() {
@@ -215,7 +235,7 @@ async function saveStory() {
     // same story, the Flam launcher imports the Telmi one.
     const studio = format === "lunii";
     const name = `${story.dirName}${studio ? "-lunii" : ""}.zip`;
-    const bytes = studio ? await buildStudioZip(story) : story.zip;
+    const bytes = studio ? await buildStudioZip(story, night) : story.zip;
 
     showSummary(story);
     downloadLink.href = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
@@ -338,3 +358,4 @@ startLanguage();
 startFormat();
 startCut();
 startCrop();
+startNight();

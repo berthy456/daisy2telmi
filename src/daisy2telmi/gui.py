@@ -65,6 +65,7 @@ class App:
         self.cover_var = tk.StringVar()
         self.crop_var = tk.StringVar(value=self.options["cover_crop"])
         self.format_var = tk.StringVar(value=self.options["format"])
+        self.night_var = tk.BooleanVar(value=bool(self.options["night_mode"]))
         self._previews: tuple[str, dict[str, bytes]] | None = None
         self._crop_images: dict[str, tk.PhotoImage] = {}
         self.force_var = tk.BooleanVar(value=False)
@@ -121,6 +122,15 @@ class App:
             )
             self._labels[f"fmt_{player}"] = box
             box.pack(side="left", padx=(0, 12))
+
+        # Only the Lunii archive carries a night-mode flag: the Telmi player keeps
+        # night mode as a device setting, so the box is greyed out for it.
+        self.night_box = ttk.Checkbutton(
+            format_row, text=self.t("night_mode"), variable=self.night_var, command=self._pick_night
+        )
+        self._labels["night_mode"] = self.night_box
+        self.night_box.pack(side="left", padx=(6, 0))
+        self._follow_format()
 
         self._label(grid, "cover_label").grid(row=5, column=0, sticky="w", pady=(0, 2))
         ttk.Entry(grid, textvariable=self.cover_var).grid(row=5, column=1, sticky="ew", padx=(6, 0))
@@ -252,9 +262,18 @@ class App:
     def _pick_format(self) -> None:
         self.options["format"] = self.format_var.get()
         settings.save(self.options)
+        self._follow_format()
         # The crop preview shows the chosen player's screen, so it is redrawn.
         self._previews = None
         self._show_crop()
+
+    def _pick_night(self) -> None:
+        self.options["night_mode"] = self.night_var.get()
+        settings.save(self.options)
+
+    def _follow_format(self) -> None:
+        """Night mode is a flag of the Lunii archive, so it is only offered there."""
+        self.night_box.state(["!disabled"] if self.format_var.get() == "lunii" else ["disabled"])
 
     def _show_crop(self) -> None:
         """Draw each crop band on its own button: which band a tall cover loses
@@ -330,6 +349,7 @@ class App:
                 self.cut,
                 self.format_var.get(),
                 self.crop_var.get(),
+                self.night_var.get(),
             ),
             daemon=True,
         ).start()
@@ -345,8 +365,11 @@ class App:
         cut: str,
         fmt: str,
         crop: str,
+        night_mode: bool,
     ) -> None:
-        self.events.put(("code", convert(source, out_dir, force, announce, cover, drop, cut, fmt, crop)))
+        self.events.put(
+            ("code", convert(source, out_dir, force, announce, cover, drop, cut, fmt, crop, night_mode))
+        )
 
     def _drain(self) -> None:
         while True:

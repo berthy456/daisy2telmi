@@ -82,6 +82,13 @@ test("converting the same story twice writes the same archive", async () => {
   assert.equal(storyJson.nightModeAvailable, false);
 });
 
+test("a story marked night-mode available joins the Lunii's bedtime playlist", async () => {
+  const book = await story();
+  const entries = await readZip(await buildStudioZip(book, true));
+  const storyJson = JSON.parse(new TextDecoder().decode(entries[0].data));
+  assert.equal(storyJson.nightModeAvailable, true);
+});
+
 test("a story cut to sentences still folds into stages", async () => {
   const book = await story("sentence");
   const { storyJson, assets } = await buildStudioFiles(book);

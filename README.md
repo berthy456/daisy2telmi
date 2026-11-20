@@ -48,6 +48,8 @@ daisy2telmi --format lunii gon-ruby-mp3.zip stories
 
 `--format telmi|lunii|flam` picks the player the story is written for; Telmi is the default. The story folder is always written, and one archive comes out of it: `story.zip` for the Telmi Sync and the Flam launcher, which both import TELMI folders, or `<story>-lunii.zip` in the STUdio form for a Lunii. A plain Lunii has no colour panel and four grey levels, so choosing it draws a second set of cards — white ground, black ink, flattened to `0/96/192/255` — and builds the archive from those. The GUI has the same three choices under the cover field.
 
+`--night-mode` / `--no-night-mode` marks the Lunii archive `nightModeAvailable`, which is how a Lunii offers the story in its bedtime playlist — screen off, volume capped. It is on by default and only reaches `--format lunii`: the Telmi player keeps night mode as a device setting, and a story folder cannot ask for it.
+
 ### Spoken chapter cards
 
 A chapter card can speak when it appears, so a listener who cannot see the screen knows where the book is:
