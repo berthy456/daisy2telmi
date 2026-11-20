@@ -178,6 +178,21 @@ def _tall_cover(tmp_path: Path) -> Path:
     return source
 
 
+def _sided_cover(tmp_path: Path) -> Path:
+    """Red beside green, 600x300: which side a crop keeps is then its colour."""
+    source = tmp_path / "sides.png"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=red:s=300x300",
+            "-f", "lavfi", "-i", "color=lime:s=300x300",
+            "-filter_complex", "hstack=inputs=2", "-frames:v", "1", str(source),
+        ],
+        check=True,
+    )
+    return source
+
+
 def _colour(png: Path) -> tuple[int, int, int]:
     result = subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(png),
@@ -227,6 +242,64 @@ def test_crop_previews_shows_every_band_small(tmp_path: Path) -> None:
     for mode, png in previews.items():
         saved.write_bytes(png)
         assert _band(saved) == BANDS[mode], mode
+
+
+def test_crop_view_keeps_the_band_and_clamps_the_zoom() -> None:
+    assert images.crop_view()["zoom"] == 1.0
+    assert images.crop_view()["focus"] is None
+    assert images.crop_view("top", 0)["zoom"] == 1.0, "a zoom below one would shrink the cover"
+    assert images.crop_view("top", 99)["zoom"] == images.MAX_ZOOM
+    assert images.crop_view("top", 2, [0, 1])["focus"] == [0, 1]
+
+
+@NO_FFMPEG
+def test_a_moved_frame_keeps_the_band_it_was_dragged_onto(tmp_path: Path) -> None:
+    source = _tall_cover(tmp_path)
+    for focus, band in (((0.5, 0.0), "red"), ((0.5, 1.0), "blue")):
+        out = tmp_path / f"moved-{focus[1]}.png"
+        images._crop("ffmpeg", source, images.IMAGE_SIZE, out, "center", {"focus": list(focus)})
+        assert _band(out) == band, focus
+
+
+@NO_FFMPEG
+def test_a_frame_with_no_room_to_move_stays_put(tmp_path: Path) -> None:
+    """A tall cover already fills a 4:3 frame sideways, so a sideways move does nothing."""
+    source = _tall_cover(tmp_path)
+    left = tmp_path / "left.png"
+    right = tmp_path / "right.png"
+    images._crop("ffmpeg", source, images.IMAGE_SIZE, left, "center", {"focus": [0.0, 0.5]})
+    images._crop("ffmpeg", source, images.IMAGE_SIZE, right, "center", {"focus": [1.0, 0.5]})
+    assert left.read_bytes() == right.read_bytes()
+
+
+@NO_FFMPEG
+def test_zooming_opens_room_to_move_sideways(tmp_path: Path) -> None:
+    source = _sided_cover(tmp_path)
+    for focus, band in (((0.0, 0.5), "red"), ((1.0, 0.5), "green")):
+        out = tmp_path / f"zoom-{focus[0]}.png"
+        images._crop("ffmpeg", source, images.IMAGE_SIZE, out, "center", {"focus": list(focus), "zoom": 2})
+        assert _band(out) == band, focus
+
+
+@NO_FFMPEG
+def test_zooming_keeps_the_band_the_frame_was_on(tmp_path: Path) -> None:
+    source = _tall_cover(tmp_path)
+    out = tmp_path / "zoomed.png"
+    images._crop("ffmpeg", source, images.IMAGE_SIZE, out, "bottom", {"zoom": 2})
+    assert _band(out) == BANDS["bottom"]
+
+
+@NO_FFMPEG
+def test_a_moved_frame_reaches_every_image_write_cover_draws(tmp_path: Path) -> None:
+    source = _tall_cover(tmp_path)
+    up = tmp_path / "up"
+    down = tmp_path / "down"
+    images.write_cover(source, up, ["1/1"], [""], "center", view={"focus": [0.5, 0.0]})
+    images.write_cover(source, down, ["1/1"], [""], "center", view={"focus": [0.5, 1.0]})
+    for name in (images.TITLE_IMAGE, images.COVER_IMAGE):
+        assert _band(up / name) == BANDS["top"], name
+        assert _band(down / name) == BANDS["bottom"], name
+    assert (up / "images/m0.png").read_bytes() != (down / "images/m0.png").read_bytes()
 
 
 def _pixel(png: Path, x: int, y: int) -> tuple[int, int, int]:

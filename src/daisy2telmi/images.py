@@ -327,8 +327,12 @@ def _run(args: list[str], description: str) -> None:
 # user's call.
 CROP_MODES = ("top", "center", "bottom")
 
-# `ih-oh`, not the shorter `ih-h`: ffmpeg 9 dropped the crop filter's w/h aliases.
-_CROP_OFFSET = {"top": ":0:0", "center": "", "bottom": ":0:ih-oh"}
+# Where the frame sits over the cover, as fractions of the room it has to move
+# in: 0 is the cover's left/top edge, 1 its right/bottom edge. The web page lets
+# the frame be dragged and enlarged anywhere inside these bounds, so the desktop
+# reads the same two numbers rather than only the three bands.
+CROP_FOCUS = {"top": (0.5, 0.0), "center": (0.5, 0.5), "bottom": (0.5, 1.0)}
+MAX_ZOOM = 4.0
 
 
 def _grey_chain() -> str:
@@ -343,11 +347,40 @@ def _grey_chain() -> str:
     return f"format=gray,eq=contrast=1.6,gblur=sigma=1,lutyuv=y='{steps}',format=rgb24"
 
 
-def _crop(ffmpeg: str, source: Path, size: tuple[int, int], dest: Path, mode: str = "center") -> None:
+def crop_view(mode: str = "center", zoom: float = 1.0, focus: Sequence[float] | None = None) -> dict:
+    """The one picture of the crop: a band, a place, an enlargement.
+
+    `focus` overrides the band as soon as the frame is moved, which is what the
+    web page's drag does; `zoom` enlarges the cover under a frame that stays put.
+    """
+    return {
+        "crop": mode,
+        "zoom": min(max(1.0, zoom), MAX_ZOOM),
+        "focus": list(focus) if focus else None,
+    }
+
+
+def _crop(
+    ffmpeg: str,
+    source: Path,
+    size: tuple[int, int],
+    dest: Path,
+    mode: str = "center",
+    view: dict | None = None,
+) -> None:
     width, height = size
+    zoom = min(max(1.0, float((view or {}).get("zoom") or 1.0)), MAX_ZOOM)
+    focus = (view or {}).get("focus") or CROP_FOCUS[mode]
+    # The cover is scaled to just cover the frame, then enlarged by the zoom; the
+    # frame then sits at `focus` of the room that leaves. `ceil` to an even number
+    # so the scaled cover always reaches the frame, which `crop` cannot place
+    # outside itself.
+    fit = f"max({width}/iw,{height}/ih)"
     chain = (
-        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height}{_CROP_OFFSET[mode]}"
+        # The quotes matter: the filter graph would read max()'s comma as the end
+        # of the scale filter.
+        f"scale=w='ceil(iw*{fit}*{zoom}/2)*2':h='ceil(ih*{fit}*{zoom}/2)*2',"
+        f"crop={width}:{height}:(iw-{width})*{focus[0]}:(ih-{height})*{focus[1]}"
     )
     _run(
         [ffmpeg, "-y", "-i", str(source), "-vf", chain, "-frames:v", "1", str(dest)],
@@ -414,6 +447,7 @@ def write_cover(
     style: str = "colour",
     scene: tuple[int, int] = IMAGE_SIZE,
     cover_size: tuple[int, int] = COVER_SIZE,
+    view: dict | None = None,
 ) -> None:
     """`title.png`, `cover.png` and one card per part, all from `source`.
 
@@ -440,14 +474,14 @@ def write_cover(
         thumbnail = scratch / "thumb.png"
         plain = scratch / "plain.png"
         card_base = scratch / "card.png"
-        _crop(ffmpeg, source, scene, base, crop)
-        _crop(ffmpeg, source, cover_size, square, crop)
+        _crop(ffmpeg, source, scene, base, crop, view)
+        _crop(ffmpeg, source, cover_size, square, crop, view)
         if style == "bw":
             # The whole cover behind the lettering. It is flattened with the
             # lettering, once: flattening twice would push every grey up a level.
             shutil.copyfile(base, card_base)
         else:
-            _crop(ffmpeg, source, thumb_size, thumbnail, crop)
+            _crop(ffmpeg, source, thumb_size, thumbnail, crop, view)
             plain.write_bytes(flat_png(*scene, style=style))
             _overlay(ffmpeg, plain, thumbnail, card_base, margin, margin)
 

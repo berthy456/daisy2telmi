@@ -125,37 +125,32 @@ async function toPng(canvas) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-/** A small copy for the page, so the user sees the cover they picked. */
-export function previewDataUrl(cover, width = 160) {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = Math.max(1, Math.round((width * cover.height) / cover.width));
-  canvas.getContext("2d").drawImage(cover, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/png");
-}
-
 export const CROP_MODES = ["top", "center", "bottom"];
 
-/** The cover, cropped into the box at (left, top). */
-function drawCover(ctx, cover, left, top, width, height, crop = "center") {
-  const scale = Math.max(width / cover.width, height / cover.height);
+// Where the frame sits over the cover: 0.5 is centred, 0 is the left or top edge,
+// 1 the right or bottom one. The three named modes are the presets a user picks
+// without a mouse; a drag sets the same two numbers anywhere between.
+export const CROP_FOCUS = { top: [0.5, 0], center: [0.5, 0.5], bottom: [0.5, 1] };
+export const MAX_ZOOM = 4;
+
+/**
+ * The part of the cover the frame shows: {crop} for a preset, or {focus, zoom}
+ * for a place the user moved and scaled themselves. The cover always fills the
+ * frame; zoom only enlarges it past the point where it fits.
+ */
+export function cropRect(cover, width, height, view = {}) {
+  const focus = view.focus ?? CROP_FOCUS[view.crop ?? "center"];
+  const zoom = Math.max(1, view.zoom ?? 1);
+  const scale = Math.max(width / cover.width, height / cover.height) * zoom;
   const drawnWidth = cover.width * scale;
   const drawnHeight = cover.height * scale;
-  const offset = crop === "top" ? 0 : crop === "bottom" ? height - drawnHeight : (height - drawnHeight) / 2;
-  ctx.drawImage(cover, left + (width - drawnWidth) / 2, top + offset, drawnWidth, drawnHeight);
+  return [(width - drawnWidth) * focus[0], (height - drawnHeight) * focus[1], drawnWidth, drawnHeight];
 }
 
-/** Each crop band, small, as PNG bytes: what the page shows under the cover picker.
- * The box keeps the ratio of the player chosen, so it shows what that player shows. */
-export async function cropPreviews(cover, scene = IMAGE_SIZE, width = 160) {
-  const height = Math.round((width * scene[1]) / scene[0]);
-  const previews = {};
-  for (const mode of CROP_MODES) {
-    const canvas = surface(width, height);
-    drawCover(canvas.getContext("2d"), cover, 0, 0, width, height, mode);
-    previews[mode] = await toPng(canvas);
-  }
-  return previews;
+/** The cover, cropped into the box at (left, top). */
+function drawCover(ctx, cover, left, top, width, height, view = {}) {
+  const [x, y, drawnWidth, drawnHeight] = cropRect(cover, width, height, view);
+  ctx.drawImage(cover, left + x, top + y, drawnWidth, drawnHeight);
 }
 
 /**
@@ -210,7 +205,7 @@ export async function cardPng(
   label,
   text,
   cover = null,
-  crop = "center",
+  view = {},
   width = IMAGE_SIZE[0],
   height = IMAGE_SIZE[1],
   style = "colour",
@@ -225,8 +220,8 @@ export async function cardPng(
   ctx.miterLimit = 2;
   ctx.textBaseline = "top";
   if (cover) {
-    if (band) drawCover(ctx, cover, 0, 0, width, height, crop);
-    else drawCover(ctx, cover, margin, margin, ...thumb, crop);
+    if (band) drawCover(ctx, cover, 0, 0, width, height, view);
+    else drawCover(ctx, cover, margin, margin, ...thumb, view);
   }
 
   const numberSize = Math.round(height / 11);
@@ -267,10 +262,10 @@ export async function cardPng(
 }
 
 /** The cover, cropped to width x height. */
-export async function coverPng(cover, width, height, crop = "center", style = "colour") {
+export async function coverPng(cover, width, height, view = {}, style = "colour") {
   const canvas = surface(width, height);
   const ctx = canvas.getContext("2d");
-  drawCover(ctx, cover, 0, 0, width, height, crop);
+  drawCover(ctx, cover, 0, 0, width, height, view);
   if (style === "bw") toGreys(ctx, width, height);
   return toPng(canvas);
 }

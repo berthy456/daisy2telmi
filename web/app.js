@@ -1,5 +1,5 @@
 import { CUT_LEVELS, cutChoices, extractBook } from "./daisy.js";
-import { cropPreviews, loadCoverFile, loadCoverUrl, previewDataUrl, screen, searchUrl } from "./cover.js";
+import { CROP_FOCUS, MAX_ZOOM, cropRect, loadCoverFile, loadCoverUrl, screen, searchUrl } from "./cover.js";
 import { findCover } from "./covers.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
@@ -20,11 +20,13 @@ const coverPicker = document.getElementById("cover-picker");
 const coverUrl = document.getElementById("cover-url");
 const coverUse = document.getElementById("cover-use");
 const coverClear = document.getElementById("cover-clear");
-const coverPreview = document.getElementById("cover-preview");
 const coverSearch = document.getElementById("cover-search");
 const cutInputs = [...document.querySelectorAll('input[name="cut"]')];
-const cropRow = document.getElementById("crop-row");
+const cropBox = document.getElementById("crop-box");
+const cropCanvas = document.getElementById("crop-canvas");
 const cropInputs = [...document.querySelectorAll('input[name="crop"]')];
+const cropZoom = document.getElementById("crop-zoom");
+const cropReset = document.getElementById("crop-reset");
 const formatInputs = [...document.querySelectorAll('input[name="format"]')];
 const nightRow = document.getElementById("night-row");
 const nightInput = document.getElementById("night-mode");
@@ -45,6 +47,10 @@ const LISTED_PARTS = 30;
 // how many there are instead of drawing a thousand checkboxes.
 const LISTED_BOXES = 400;
 
+// The crop box is drawn this wide, whatever the player's ratio: a 360 px frame
+// shows a cover's lettering well enough to place it by eye.
+const CROP_WIDTH = 360;
+
 let source = null;
 let cover = null;
 let lang = "en";
@@ -52,7 +58,11 @@ let cut = "chapter";
 let crop = "center";
 let format = "telmi";
 let night = true;
-let cropUrls = [];
+// Where the frame sits over the cover and how far it is enlarged. `focus` stays
+// null while one of the three named bands is chosen, and takes over once the
+// user moves the frame themselves.
+let focus = null;
+let zoom = 1;
 // Part numbers left out of the story, in the numbering of the chosen cut level.
 let dropped = new Set();
 // Counts the lookups in flight, so an answer about a pack that has been replaced
@@ -119,7 +129,7 @@ function startFormat() {
       format = input.value;
       remember(STORED_FORMAT, format);
       showNight();
-      refreshCrops();
+      drawCrop();
     });
   }
   showNight();
@@ -139,6 +149,77 @@ function startNight() {
   });
 }
 
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+
+/** The frame's place over the cover: the chosen band until the user moves it. */
+function currentFocus() {
+  return focus ?? CROP_FOCUS[crop];
+}
+
+function cropView() {
+  return { crop, zoom, focus };
+}
+
+/**
+ * The crop box drawn at the chosen player's ratio: what is inside this frame is
+ * what the story will carry, so the choice is made on the picture rather than
+ * described to it.
+ */
+function drawCrop() {
+  if (!cover) return;
+  const [scene] = screen(format);
+  const width = CROP_WIDTH;
+  const height = Math.round((width * scene[1]) / scene[0]);
+  if (cropCanvas.width !== width || cropCanvas.height !== height) {
+    cropCanvas.width = width;
+    cropCanvas.height = height;
+  }
+  const ctx = cropCanvas.getContext("2d");
+  ctx.clearRect(0, 0, width, height);
+  const [x, y, drawnWidth, drawnHeight] = cropRect(cover, width, height, cropView());
+  ctx.drawImage(cover, x, y, drawnWidth, drawnHeight);
+}
+
+/** A drag moves the cover, so the frame's place moves the other way. The canvas
+ * is scaled down by CSS on a narrow screen, hence the divide. */
+function moveFocus(from, dx, dy) {
+  const width = cropCanvas.width;
+  const height = cropCanvas.height;
+  const scale = cropCanvas.clientWidth / width || 1;
+  const [, , drawnWidth, drawnHeight] = cropRect(cover, width, height, { focus: from, zoom });
+  const out = [...from];
+  if (drawnWidth > width) out[0] = clamp(out[0] - dx / scale / (drawnWidth - width), 0, 1);
+  if (drawnHeight > height) out[1] = clamp(out[1] - dy / scale / (drawnHeight - height), 0, 1);
+  return out;
+}
+
+function setZoom(value) {
+  zoom = clamp(value, 1, MAX_ZOOM);
+  cropZoom.value = String(zoom);
+  drawCrop();
+}
+
+/** A moved frame answers to no band, so the three radios let go of it. */
+function setFocus(next) {
+  focus = next;
+  for (const input of cropInputs) input.checked = false;
+  drawCrop();
+}
+
+function moveFrame(dx, dy) {
+  setFocus(moveFocus(currentFocus(), dx, dy));
+}
+
+function resetCrop() {
+  crop = "center";
+  focus = null;
+  zoom = 1;
+  cropZoom.value = "1";
+  for (const input of cropInputs) input.checked = input.value === crop;
+  remember(STORED_CROP, crop);
+  drawCrop();
+}
+
 function startCrop() {
   const stored = saved(STORED_CROP);
   crop = cropInputs.some((input) => input.value === stored) ? stored : "center";
@@ -146,54 +227,69 @@ function startCrop() {
     input.checked = input.value === crop;
     input.addEventListener("change", () => {
       crop = input.value;
+      focus = null;
       remember(STORED_CROP, crop);
+      drawCrop();
     });
   }
-}
+  cropZoom.max = String(MAX_ZOOM);
+  cropZoom.addEventListener("input", () => setZoom(Number(cropZoom.value)));
+  cropReset.addEventListener("click", resetCrop);
 
-/** Each crop band drawn small under the cover picker: which band a tall cover
- * loses is not something a word can tell you. The box keeps the chosen player's
- * ratio, so it shows what that player will show. */
-async function showCrops(bitmap) {
-  const previews = await cropPreviews(bitmap, screen(format)[0]);
-  for (const url of cropUrls) URL.revokeObjectURL(url);
-  cropUrls = [];
-  for (const input of cropInputs) {
-    const url = URL.createObjectURL(new Blob([previews[input.value]], { type: "image/png" }));
-    cropUrls.push(url);
-    input.closest("label").querySelector("img").src = url;
-  }
-  cropRow.hidden = false;
-}
-
-/** Redraw the crop bands, for a new cover or for a new player's screen. */
-function refreshCrops() {
-  if (!cover) return;
-  showCrops(cover).catch(() => {
-    cropRow.hidden = true;
+  let drag = null;
+  cropCanvas.addEventListener("pointerdown", (event) => {
+    if (!cover) return;
+    cropCanvas.setPointerCapture(event.pointerId);
+    drag = { x: event.clientX, y: event.clientY, focus: currentFocus() };
+  });
+  // A drag reports how far the pointer travelled from where it went down, so it
+  // is measured against the frame as it was then, not as each move left it.
+  cropCanvas.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    setFocus(moveFocus(drag.focus, event.clientX - drag.x, event.clientY - drag.y));
+  });
+  cropCanvas.addEventListener("pointerup", () => (drag = null));
+  cropCanvas.addEventListener("pointercancel", () => (drag = null));
+  cropCanvas.addEventListener(
+    "wheel",
+    (event) => {
+      if (!cover) return;
+      event.preventDefault();
+      setZoom(zoom * (1 - event.deltaY / 400));
+    },
+    { passive: false },
+  );
+  // The keyboard reaches the same frame: the arrows move it, + and - enlarge it.
+  cropCanvas.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[event.key];
+    if (step) {
+      event.preventDefault();
+      moveFrame(step[0] * CROP_WIDTH / 10, step[1] * CROP_WIDTH / 10);
+    } else if (event.key === "+" || event.key === "=") setZoom(zoom * 1.2);
+    else if (event.key === "-") setZoom(zoom / 1.2);
   });
 }
 
 function setCover(bitmap) {
   if (cover) cover.close();
   cover = bitmap;
-  coverPreview.src = previewDataUrl(bitmap);
-  coverPreview.hidden = false;
   coverClear.hidden = false;
+  cropBox.hidden = false;
   log(t("log_cover_set", { w: bitmap.width, h: bitmap.height }));
-  refreshCrops();
+  drawCrop();
 }
 
 function clearCover() {
   if (cover) cover.close();
   cover = null;
-  coverPreview.hidden = true;
-  coverPreview.removeAttribute("src");
+  cropBox.hidden = true;
+  cropCanvas.getContext("2d").clearRect(0, 0, cropCanvas.width, cropCanvas.height);
   coverClear.hidden = true;
   coverUrl.value = "";
-  cropRow.hidden = true;
-  for (const url of cropUrls) URL.revokeObjectURL(url);
-  cropUrls = [];
+  // The frame belongs to the cover that went away; the chosen band does not.
+  focus = null;
+  zoom = 1;
+  cropZoom.value = "1";
 }
 
 /**
@@ -308,6 +404,8 @@ async function saveStory() {
       {
         cover,
         crop,
+        zoom,
+        focus,
         cut,
         drop: [...dropped],
         player: format,

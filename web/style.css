@@ -190,42 +190,50 @@ input[type="file"] {
   font: inherit;
 }
 
-#cover-preview {
-  display: block;
+/* The frame the chosen player shows. `touch-action: none` so a drag on a phone
+   moves the cover instead of scrolling the page. */
+.crop-box {
   margin-top: 0.75rem;
-  width: 8rem;
-  max-width: 100%;
-  border-radius: 7px;
-  border: 1px solid var(--line);
 }
 
-.crop-row {
+#crop-canvas {
+  display: block;
+  width: 100%;
+  max-width: 22.5rem;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  cursor: grab;
+  touch-action: none;
+}
+
+#crop-canvas:active {
+  cursor: grabbing;
+}
+
+#crop-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.crop-tools {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  align-items: flex-end;
-  margin-top: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
 }
 
-.crop {
+.crop,
+.crop-zoom {
   display: inline-flex;
-  flex-direction: column;
-  gap: 0.25rem;
   align-items: center;
+  gap: 0.3rem;
   font-size: 0.85rem;
   color: var(--ink);
 }
 
-.crop img {
-  width: 6rem;
-  height: 4.5rem;
-  object-fit: cover;
-  border-radius: 7px;
-  border: 2px solid var(--line);
-}
-
-.crop input:checked ~ img {
-  border-color: var(--accent);
+.crop-zoom input {
+  width: 7rem;
 }
 
 .quiet {

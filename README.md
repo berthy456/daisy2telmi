@@ -83,11 +83,11 @@ daisy2telmi --find-cover gon-ruby-mp3.zip stories
 
 ffmpeg crops the picture to `640x480` for `title.png` and for every chapter card, and to `512x512` for `cover.png`. Each card gets its number drawn across the middle in white with a black border — `CHAPTER 2/23`, in the `--language` of the story — so the listener sees which chapter of how many is playing. Without `--cover` the images are the placeholders described under [Output](#output).
 
-`--cover-crop top|center|bottom` says how the picture is cropped to fit those three different ratios; the middle is the default, and a tall cover loses its title there.
+`--cover-crop top|center|bottom` says how the picture is cropped to fit those three different ratios; the middle is the default, and a tall cover loses its title there. `--cover-zoom FACTOR` (1 to 4) enlarges the picture before cropping it, so the frame shows less of it and can be moved sideways as well.
 
 The number is drawn by the converter rather than by ffmpeg: Homebrew's ffmpeg has no `drawtext`, so `src/daisy2telmi/images.py` carries a 5x7 bitmap font and ffmpeg only composites the result. The font is Latin, so Chinese and Arabic cards show `2/23` alone; the spoken card still says the word.
 
-The GUI has the same field below the output folder, and looks a cover up by itself as soon as a pack is picked or dropped: the answer lands in the field, and a cover already typed there is never replaced. The web page does the same once it has read the pack. Both keep their own link, which opens a Google image search for the pack's title, and both take a cover from a file or from a link. Both then show the three crops side by side, drawn from the cover in use, and you choose by eye. Open Library is asked rather than isbndb.com because it needs no key and answers browser requests; isbndb.com's key costs money.
+The GUI has the same field below the output folder, and looks a cover up by itself as soon as a pack is picked or dropped: the answer lands in the field, and a cover already typed there is never replaced. The web page does the same once it has read the pack. Both keep their own link, which opens a Google image search for the pack's title, and both take a cover from a file or from a link. The GUI then shows the three crops side by side, drawn from the cover in use. The web page draws one frame at the chosen player's ratio instead, and you move it by dragging it, or with the slider, the wheel or the arrow keys, which enlarge the picture under it. Open Library is asked rather than isbndb.com because it needs no key and answers browser requests; isbndb.com's key costs money.
 
 ### Listening before converting
 
@@ -253,7 +253,7 @@ pip install -e .[dev]
 pytest
 ```
 
-295 Python tests and 61 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
+301 Python tests and 63 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
 
 The browser modules have their own suite, run with Node's test runner:
 

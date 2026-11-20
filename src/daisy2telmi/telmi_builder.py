@@ -302,12 +302,14 @@ def build_story(
     crop: str = "center",
     lunii_dir: Path | None = None,
     player: str = "telmi",
+    view: dict | None = None,
 ) -> StoryReport:
     """Render every chapter to `audios/` and write the story's JSON files and images.
 
     `cover` is the user's picture: it becomes the title image, the cover and the
     background of every card, which carries the chapter number and the total.
-    `crop` says which band of it survives the three different aspect ratios.
+    `crop` says which band of it survives the three different aspect ratios, and
+    `view` the frame moved or enlarged off that band (see images.crop_view).
     `player` decides the size every picture is drawn at.
 
     `lunii_dir` gets the same pictures drawn again for a greyscale Lunii screen:
@@ -366,7 +368,7 @@ def build_story(
         """The title image, the cover and every card, at one player's sizes."""
         scene, cover_size = images.screen(player)
         if cover is not None:
-            images.write_cover(cover, target, labels, texts, crop, style, scene, cover_size)
+            images.write_cover(cover, target, labels, texts, crop, style, scene, cover_size, view)
             return
         (target / "images").mkdir(parents=True, exist_ok=True)
         for index, text in enumerate(texts):

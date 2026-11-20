@@ -66,6 +66,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="how the cover is cropped to fit the chosen player's screens: the middle "
         "(default), the top, or the bottom",
     )
+    parser.add_argument(
+        "--cover-zoom",
+        type=float,
+        default=1.0,
+        metavar="FACTOR",
+        help=f"enlarge the cover by FACTOR (1 to {images.MAX_ZOOM}) before cropping it, so the "
+        "frame shows less of it and can be moved sideways as well",
+    )
     look = parser.add_argument_group("before converting")
     look.add_argument("--list", action="store_true", help="print the pack's chapters and stop")
     look.add_argument(
@@ -269,6 +277,7 @@ def convert(
     crop: str = "center",
     night_mode: bool = True,
     find_cover: bool = False,
+    zoom: float = 1.0,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     announce = speech(announce)
@@ -303,16 +312,17 @@ def convert(
                 log.error("%s is not empty; pass --force to overwrite", target)
                 return 2
             target.mkdir(parents=True, exist_ok=True)
+            view = images.crop_view(crop, zoom)
             if fmt == "lunii":
                 # The four greys cannot be recovered from the colour cards: their
                 # ground is dark and the Lunii wants the other way round. Draw a
                 # second set in a scratch folder and build the archive from those.
                 with tempfile.TemporaryDirectory(prefix="daisy2telmi-lunii-") as scratch:
                     grey = Path(scratch)
-                    report = build_story(book, target, announce, cover, cut, crop, grey, player=fmt)
+                    report = build_story(book, target, announce, cover, cut, crop, grey, player=fmt, view=view)
                     archive = write_studio_zip(target, image_dir=grey, night_mode=night_mode)
             else:
-                report = build_story(book, target, announce, cover, cut, crop, player=fmt)
+                report = build_story(book, target, announce, cover, cut, crop, player=fmt, view=view)
                 archive = write_story_zip(target, target.parent)
     except ChapterError as exc:
         log.error("%s", exc)
@@ -372,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         cover_crop(args),
         night_mode(args),
         args.find_cover,
+        args.cover_zoom,
     )
 
 
