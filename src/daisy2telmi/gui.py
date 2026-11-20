@@ -23,7 +23,7 @@ from .cli import FORMATS, convert
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES, text
-from .telmi_builder import Announce, slugify
+from .telmi_builder import ANNOUNCE_MODES, Announce, slugify
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -33,8 +33,7 @@ except ImportError:  # drag and drop is a bonus, browsing works without it
 
 log = logging.getLogger("daisy2telmi")
 
-ANNOUNCE_MODES = ("prompt", "chapter", "off")
-ANNOUNCE_KEYS = {"prompt": "announce_prompt", "chapter": "announce_chapter", "off": "announce_off"}
+ANNOUNCE_KEYS = {mode: f"announce_{mode}" for mode in ANNOUNCE_MODES}
 
 
 class _QueueHandler(logging.Handler):
@@ -655,7 +654,9 @@ class Options:
         grid.columnconfigure(1, weight=1)
 
         self.language_box = self._combo(grid, self.language_keys, app.options["language"])
-        self.announce_box = self._combo(grid, self.announce_keys, app.options["announce"])
+        self.announce_box = self._combo(
+            grid, self.announce_keys, app.options["announce"], ANNOUNCE_KEYS
+        )
         self.engine_box = self._combo(grid, self.engine_keys, app.options["tts"])
         self.voice_box = self._combo(grid, [None], app.options["voice"])
         self.device_box = self._combo(grid, self.device_keys, app.options["device"])
@@ -691,26 +692,33 @@ class Options:
         self.language_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
         self._fill_voices()
 
-    def _label_text(self, key: str | None) -> str:
+    def _label_text(self, key: str | None, labels: dict[str, str] | None = None) -> str:
+        # "off" means two different things here: a silent card on one row, no
+        # speech engine on another, so the row's own table decides which.
+        if labels and key in labels:
+            return self.app.t(labels[key])
         if key is None:
             return self.app.t("voice_default")
         if key == "auto":
             return self.app.t("engine_auto")
         if key == "off":
             return self.app.t("engine_off")
-        if key in ANNOUNCE_KEYS:
-            return self.app.t(ANNOUNCE_KEYS[key])
         if key in LANGUAGES:
             return f"{key} - {LANGUAGES[key].name}"
         return next((e.label for e in tts.engines() if e.name == key), key)
 
-    def _combo(self, parent: tk.Widget, keys: list[str | None], current: str | None) -> ttk.Combobox:
-        box = ttk.Combobox(parent, values=[self._label_text(k) for k in keys], state="readonly", width=26)
-        box.set(self._label_text(current if current in keys else keys[0]))
+    def _combo(
+        self, parent: tk.Widget, keys: list[str | None], current: str | None,
+        names: dict[str, str] | None = None,
+    ) -> ttk.Combobox:
+        box = ttk.Combobox(parent, values=[self._label_text(k, names) for k in keys], state="readonly", width=26)
+        box.set(self._label_text(current if current in keys else keys[0], names))
         return box
 
-    def _chosen(self, box: ttk.Combobox, keys: list[str | None]) -> str | None:
-        labels = [self._label_text(k) for k in keys]
+    def _chosen(
+        self, box: ttk.Combobox, keys: list[str | None], names: dict[str, str] | None = None
+    ) -> str | None:
+        labels = [self._label_text(k, names) for k in keys]
         try:
             return keys[labels.index(box.get())]
         except ValueError:
@@ -748,7 +756,7 @@ class Options:
         self.app.options.update(
             {
                 "language": self._chosen(self.language_box, self.language_keys),
-                "announce": self._chosen(self.announce_box, self.announce_keys),
+                "announce": self._chosen(self.announce_box, self.announce_keys, ANNOUNCE_KEYS),
                 "autoplay": self.autoplay_var.get(),
                 "tts": self._chosen(self.engine_box, self.engine_keys),
                 "voice": self._chosen(self.voice_box, self.voice_keys),

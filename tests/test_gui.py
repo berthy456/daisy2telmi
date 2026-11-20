@@ -154,7 +154,7 @@ def test_the_window_labels_follow_the_language(app: gui.App) -> None:
 def test_the_options_page_saves_what_it_shows(app: gui.App, tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     page = gui.Options(app)
-    page.language_box.set("fr - Francais")
+    page.language_box.set("fr - Français")
     page.autoplay_var.set(True)
     page._close()
 
@@ -187,13 +187,27 @@ def test_the_chatterbox_device_choice_is_saved(app: gui.App, tmp_path, monkeypat
 
 def test_the_voice_list_follows_the_engine_and_language(app: gui.App) -> None:
     page = gui.Options(app)
-    page.language_box.set("fr - Francais")
+    page.language_box.set("fr - Français")
     espeak = next(e for e in gui.tts.engines() if e.name == "espeak")
     if not espeak.found:
         pytest.skip("no espeak-ng on this machine")
     page.engine_box.set(espeak.label)
     page._fill_voices()
     assert any("French" in name or "fr" in name for name in page.voice_box.cget("values"))
+
+
+def test_every_card_pattern_is_offered_in_the_language_of_the_window(
+    app: gui.App, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    page = gui.Options(app)
+    shown = list(page.announce_box.cget("values"))
+    assert shown == [app.t(gui.ANNOUNCE_KEYS[mode]) for mode in gui.ANNOUNCE_MODES]
+
+    page.announce_box.set(shown[gui.ANNOUNCE_MODES.index("number_title")])
+    page._close()
+    assert app.options["announce"] == "number_title"
+    assert app.announce().phrase(1, 3, "Le lapin") == "1. Le lapin"
 
 
 def test_the_announcement_setting_reaches_the_converter(app: gui.App) -> None:

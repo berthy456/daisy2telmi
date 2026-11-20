@@ -234,9 +234,39 @@ def test_the_description_lists_only_the_first_parts() -> None:
 
 
 def test_an_announcement_phrase_carries_the_chapter_number() -> None:
-    assert Announce(language="fr").phrase(3) == "Chapitre 3 Ecouter le chapitre suivant ?"
+    assert Announce(language="fr").phrase(3) == "Chapitre 3 Écouter le chapitre suivant ?"
     assert Announce(mode="chapter", language="nl").phrase(2) == "Hoofdstuk 2"
     assert Announce(mode="off").phrase(1) is None
+
+
+def test_a_card_can_read_the_part_it_introduces() -> None:
+    """The DAISY outline names its parts, and that name is what a child recognises."""
+    assert Announce(mode="title").phrase(2, 7, "La fee des bois") == "La fee des bois"
+    assert Announce(mode="number_title", language="fr").phrase(2, 7, "La fee") == "2. La fee"
+    assert Announce(mode="title_number", language="fr").phrase(2, 7, "La fee") == "La fee. 2"
+    assert Announce(mode="number").phrase(2, 7, "La fee") == "2"
+    assert Announce(mode="number_of", language="fr").phrase(2, 7) == "2 sur 7"
+
+
+def test_a_pack_whose_parts_have_no_names_falls_back_to_the_number() -> None:
+    """Sentence-level cuts and packs without synced text have nothing to read out."""
+    assert Announce(mode="title").phrase(4, 9, "") == "Chapter 4"
+    assert Announce(mode="number_title").phrase(4, 9, "") == "Chapter 4"
+    assert Announce(mode="number_of").phrase(4) == "Chapter 4"
+
+
+def test_the_titles_reach_the_speech_engine(tmp_path, monkeypatch) -> None:
+    heard: list[list[str]] = []
+
+    def fake_synth(phrases, lang_code, dests, **options):
+        heard.append(list(phrases))
+        for dest in dests:
+            Path(dest).write_bytes(b"mp3")
+
+    monkeypatch.setattr(tts, "synthesize_all", fake_synth)
+    build_card_audio(2, Announce(mode="number_title", language="fr"), tmp_path, None,
+                     ["Le lapin", "La foret"])
+    assert heard == [["1. Le lapin", "2. La foret"]]
 
 
 def test_one_failing_engine_leaves_every_card_silent(tmp_path) -> None:

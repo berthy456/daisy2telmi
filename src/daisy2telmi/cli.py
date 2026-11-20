@@ -15,6 +15,7 @@ from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES
 from .lunii import LuniiError, write_studio_zip
 from .telmi_builder import (
+    ANNOUNCE_MODES,
     Announce,
     StoryError,
     build_story,
@@ -81,8 +82,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     speech = parser.add_argument_group("chapter card speech")
     speech.add_argument(
         "--announce",
-        choices=("off", "chapter", "prompt"),
-        help="what each chapter card says: nothing, the chapter number, or the number and a prompt to continue",
+        choices=ANNOUNCE_MODES,
+        help="what each chapter card says: nothing, the number, the number and the total, "
+        "the part's title (alone or with the number), 'chapter N', or the number and a "
+        "prompt to continue",
     )
     speech.add_argument(
         "--language",

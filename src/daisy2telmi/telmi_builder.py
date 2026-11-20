@@ -48,6 +48,21 @@ class StoryReport:
     audio_mode: str = "encoded"
 
 
+# What a card can say about the part it introduces. The title patterns need a
+# pack whose parts carry synced text; where they do not, they fall back to
+# `chapter`, which every pack can say.
+ANNOUNCE_MODES = (
+    "prompt",
+    "chapter",
+    "number",
+    "number_of",
+    "title",
+    "number_title",
+    "title_number",
+    "off",
+)
+
+
 @dataclass(frozen=True)
 class Announce:
     """What each chapter card says, and whether the story advances by itself.
@@ -66,12 +81,32 @@ class Announce:
     clip: str | None = None
     device: str = tts.AUTO
 
-    def phrase(self, number: int) -> str | None:
+    def phrase(self, number: int, total: int | None = None, title: str = "") -> str | None:
+        """What the card says for one part.
+
+        The DAISY outline names its parts, so a card can read that name instead of
+        a bare number. A pack whose parts carry no text has nothing to read, so
+        every title pattern falls back to the numbered one.
+        """
         if self.mode == "off":
             return None
         lang = language(self.language)
         chapter = lang.chapter.format(n=number)
-        return f"{chapter} {lang.next_prompt}" if self.mode == "prompt" else chapter
+        if self.mode == "prompt":
+            return f"{chapter} {lang.next_prompt}"
+        if self.mode == "number":
+            return str(number)
+        if self.mode == "number_of":
+            return lang.number_of.format(n=number, total=total) if total else chapter
+        if not title:
+            return chapter
+        if self.mode == "title":
+            return title
+        if self.mode == "number_title":
+            return lang.number_title.format(n=number, title=title)
+        if self.mode == "title_number":
+            return lang.title_number.format(n=number, title=title)
+        return chapter
 
 
 def story_uuid(book: Book) -> str:
@@ -189,11 +224,17 @@ def build_notes(book: Book) -> dict:
 
 
 def build_card_audio(
-    count: int, announce: Announce, audios: Path, loudness: str | None = None
+    count: int,
+    announce: Announce,
+    audios: Path,
+    loudness: str | None = None,
+    titles: Sequence[str] = (),
 ) -> tuple[list[str | None], bool]:
     """Speak one announcement per card. A failure silences them all: the same
     engine would fail again, and a silent card is still a valid story."""
-    phrases = {k: announce.phrase(k + 1) for k in range(count)}
+    phrases = {
+        k: announce.phrase(k + 1, count, titles[k] if k < len(titles) else "") for k in range(count)
+    }
     spoken = [k for k, phrase in phrases.items() if phrase is not None]
     if not spoken:
         return [None] * count, 0
@@ -297,7 +338,9 @@ def build_story(
             story = audio.loudness(audios / f"{chapter_names[0]}.mp3")
             where = f"; the card is levelled to {tts.card_target(story):.1f} LUFS" if story is not None else ""
             log.info("speaking %d chapter card(s) in %s%s", count, language(announce.language).name, where)
-            cards, spoken = build_card_audio(count, announce, audios, tts.card_loudness(story))
+            cards, spoken = build_card_audio(
+                count, announce, audios, tts.card_loudness(story), [c.title for c in book.chapters]
+            )
         else:
             log.info("playing the first %.0f s of each of the %d part(s) on its card", CARD_SNIPPET_SECONDS, count)
             cards = build_snippets(book.chapters, audios)
