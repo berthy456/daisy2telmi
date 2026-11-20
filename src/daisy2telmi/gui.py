@@ -15,8 +15,9 @@ import queue
 import tempfile
 import threading
 import tkinter as tk
+from dataclasses import replace
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import audio, chapters, images, settings, tts
 from .cli import FORMATS, convert
@@ -335,7 +336,8 @@ class App:
 
         self.save_button.state(["disabled"])
         self.progress.start(12)
-        announce = self.announce()
+        engine, install = self._speech()
+        announce = replace(self.announce(), engine=engine)
         dropped = sorted(self.dropped)
         threading.Thread(
             target=self._run,
@@ -344,6 +346,7 @@ class App:
                 out_dir,
                 self.force_var.get(),
                 announce,
+                install,
                 cover,
                 ",".join(str(number) for number in dropped) if dropped else None,
                 self.cut,
@@ -354,12 +357,29 @@ class App:
             daemon=True,
         ).start()
 
+    def _speech(self) -> tuple[str, bool]:
+        """The engine this story's cards get, and whether Chatterbox goes in first.
+
+        Chatterbox is the default because a card read by a real voice is what the
+        player is for, but it does not ship inside the app: it is a package the
+        user's own Python installs. OK starts that install, Cancel takes the best
+        voice the machine already has.
+        """
+        engine = self.options["tts"]
+        if engine != tts.CHATTERBOX or tts.available(tts.CHATTERBOX, self.options["python"]):
+            return engine, False
+        if messagebox.askokcancel(self.t("opt_section_chatterbox"), self.t("chatterbox_needed")):
+            return engine, True
+        self._append("Chatterbox is not installed: the machine's own voice will read the cards")
+        return tts.AUTO, False
+
     def _run(
         self,
         source: Path,
         out_dir: Path,
         force: bool,
         announce: Announce,
+        install: bool,
         cover: Path | None,
         drop: str | None,
         cut: str,
@@ -367,6 +387,12 @@ class App:
         crop: str,
         night_mode: bool,
     ) -> None:
+        if install:
+            try:
+                tts.install_chatterbox(announce.python)
+            except tts.TtsError as exc:
+                log.error("%s: the machine's own voice will read the cards instead", exc)
+                announce = replace(announce, engine=tts.AUTO)
         self.events.put(
             ("code", convert(source, out_dir, force, announce, cover, drop, cut, fmt, crop, night_mode))
         )
@@ -704,16 +730,28 @@ class Options:
         ttk.Label(grid, text=app.t("opt_chatterbox_hint")).grid(
             row=6, column=0, columnspan=2, sticky="w", pady=(0, 6)
         )
-        self._row(grid, "opt_python", 7, self.python_box)
-        self._row(grid, "opt_device", 8, self.device_box)
-        self._row(grid, "opt_clip", 9, clip_row)
+        # Chatterbox is not inside the app: it is a package that goes into the
+        # Python named below, so the page says whether it is there already.
+        self.chatterbox_state = ttk.Label(grid, text=self._chatterbox_text())
+        self.chatterbox_state.grid(row=7, column=0, sticky="w")
+        self.chatterbox_button = ttk.Button(
+            grid, text=app.t("chatterbox_install"), command=self._install_chatterbox
+        )
+        self.chatterbox_button.grid(row=7, column=1, sticky="e", padx=(8, 0))
+        self._row(grid, "opt_python", 8, self.python_box)
+        self._row(grid, "opt_device", 9, self.device_box)
+        self._row(grid, "opt_clip", 10, clip_row)
         ttk.Button(grid, text=app.t("opt_close"), command=self._close).grid(
-            row=10, column=0, columnspan=2, sticky="e", pady=(12, 0)
+            row=11, column=0, columnspan=2, sticky="e", pady=(12, 0)
         )
 
         self.engine_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
         self.language_box.bind("<<ComboboxSelected>>", lambda _e: self._fill_voices())
+        self.python_box.bind("<FocusOut>", lambda _e: self._recheck_chatterbox())
         self._fill_voices()
+
+        self.events: queue.Queue[str] = queue.Queue()
+        self.top.after(200, self._drain)
 
     def _label_text(self, key: str | None, labels: dict[str, str] | None = None) -> str:
         # "off" means two different things here: a silent card on one row, no
@@ -774,6 +812,44 @@ class Options:
         if path:
             self.clip_box.delete(0, "end")
             self.clip_box.insert(0, path)
+
+    def _chatterbox_text(self) -> str:
+        engine = tts.CHATTERBOX
+        python = self.python_box.get().strip() or None
+        if tts.available(engine, python):
+            return self.app.t("chatterbox_found")
+        return self.app.t("chatterbox_missing")
+
+    def _recheck_chatterbox(self) -> None:
+        self.chatterbox_state.configure(text=self._chatterbox_text())
+
+    def _install_chatterbox(self) -> None:
+        """pip runs in the background: the download is a gigabyte or more."""
+        self.chatterbox_button.state(["disabled"])
+        self.chatterbox_button.configure(text=self.app.t("chatterbox_installing"))
+        # The entry is read here: only this thread may touch a widget.
+        python = self.python_box.get().strip() or None
+        threading.Thread(target=self._chatterbox_install, args=(python,), daemon=True).start()
+
+    def _chatterbox_install(self, python: str | None = None) -> None:
+        try:
+            tts.install_chatterbox(python)
+        except tts.TtsError as exc:
+            log.error("%s", exc)
+        self.events.put("chatterbox")
+
+    def _drain(self) -> None:
+        if not self.top.winfo_exists():
+            return
+        try:
+            self.events.get_nowait()
+        except queue.Empty:
+            self.top.after(200, self._drain)
+            return
+        self.chatterbox_button.state(["!disabled"])
+        self.chatterbox_button.configure(text=self.app.t("chatterbox_install"))
+        self.chatterbox_state.configure(text=self._chatterbox_text())
+        self.top.after(200, self._drain)
 
     def _close(self) -> None:
         self.app.options.update(

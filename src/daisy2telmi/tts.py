@@ -142,6 +142,35 @@ def available(name: str, python: str | None = None) -> bool:
     return False
 
 
+CHATTERBOX_PACKAGE = "chatterbox-tts"
+
+
+def install_chatterbox(python: str | None = None) -> None:
+    """Install Chatterbox into the Python its cards will run in.
+
+    Asked for rather than done on the side: the wheel brings torch with it, which
+    is a download of a gigabyte or more. pip's own output goes to the log, since
+    a silent minute and a half looks like a hang.
+    """
+    exe = _python(python)
+    if not exe:
+        raise TtsError(
+            "no Python to install Chatterbox into: set the Chatterbox Python in the options, "
+            "or pass --tts-python"
+        )
+    command = [exe, "-m", "pip", "install", "--upgrade", CHATTERBOX_PACKAGE]
+    log.info("installing %s into %s", CHATTERBOX_PACKAGE, exe)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert process.stdout is not None
+    for line in process.stdout:
+        if line.strip():
+            log.info("pip: %s", line.strip())
+    if process.wait():
+        raise TtsError(f"pip could not install {CHATTERBOX_PACKAGE} into {exe}")
+    _chatterbox_cache.clear()
+    log.info("%s is installed", CHATTERBOX_PACKAGE)
+
+
 def engines(python: str | None = None) -> list[Engine]:
     labels = {
         ESPEAK: "espeak-ng",

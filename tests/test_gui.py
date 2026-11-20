@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -17,12 +18,16 @@ from daisy2telmi.extractor import AudioSegment, Book, Chapter
 
 
 @pytest.fixture()
-def app():
+def app(tmp_path, monkeypatch):
+    # A page that saves on close would otherwise leave its options in the config
+    # folder the rest of the suite reads.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     try:
         root = gui.make_root()
     except tk.TclError as exc:  # headless CI
         pytest.skip(f"no display: {exc}")
     instance = gui.App(root)
+    instance.options["tts"] = "off"  # a window test must not stop on a Chatterbox install
     try:
         yield instance
     finally:
@@ -183,6 +188,64 @@ def test_the_chatterbox_device_choice_is_saved(app: gui.App, tmp_path, monkeypat
     assert app.options["device"] == "mps"
     saved = (tmp_path / "daisy2telmi" / "config.json").read_text(encoding="utf-8")
     assert '"device": "mps"' in saved
+
+
+def _settled(app: gui.App, page: gui.Options) -> None:
+    """The install runs on its own thread; the page's queue brings the button back."""
+    for _ in range(300):
+        app.root.update()
+        if page.chatterbox_button.instate(["!disabled"]):
+            return
+        time.sleep(0.01)
+    pytest.fail("the install never reported back")
+
+
+def test_the_options_page_can_install_chatterbox(app: gui.App, monkeypatch) -> None:
+    installed: list[str | None] = []
+    monkeypatch.setattr(gui.tts, "available", lambda name, python=None: False)
+    monkeypatch.setattr(gui.tts, "install_chatterbox", lambda python: installed.append(python))
+    page = gui.Options(app)
+    page.python_box.insert(0, "/opt/python")
+    assert page.chatterbox_state.cget("text") == app.t("chatterbox_missing")
+
+    page._install_chatterbox()
+    assert page.chatterbox_button.instate(["disabled"])
+    _settled(app, page)
+    assert installed == ["/opt/python"]
+
+
+def test_a_failing_install_is_reported_and_the_button_comes_back(app: gui.App, monkeypatch, caplog) -> None:
+    def refuse(_python):
+        raise gui.tts.TtsError("no network")
+
+    monkeypatch.setattr(gui.tts, "available", lambda name, python=None: False)
+    monkeypatch.setattr(gui.tts, "install_chatterbox", refuse)
+    page = gui.Options(app)
+    page._install_chatterbox()
+    _settled(app, page)
+    assert "no network" in caplog.text
+
+
+def test_a_missing_chatterbox_is_offered_before_the_cards_are_made(app: gui.App, monkeypatch) -> None:
+    """Chatterbox is the default voice, but it is not inside the app: the user says
+    whether it may be downloaded, and Cancel takes the machine's own voice."""
+    app.options["tts"] = "chatterbox"
+    monkeypatch.setattr(gui.tts, "available", lambda name, python=None: False)
+
+    monkeypatch.setattr(gui.messagebox, "askokcancel", lambda title, body: True)
+    assert app._speech() == ("chatterbox", True)
+
+    monkeypatch.setattr(gui.messagebox, "askokcancel", lambda title, body: False)
+    assert app._speech() == (gui.tts.AUTO, False)
+
+
+def test_an_installed_chatterbox_is_used_without_asking(app: gui.App, monkeypatch) -> None:
+    app.options["tts"] = "chatterbox"
+    monkeypatch.setattr(gui.tts, "available", lambda name, python=None: True)
+    monkeypatch.setattr(
+        gui.messagebox, "askokcancel", lambda *args: pytest.fail("asked about an installed engine")
+    )
+    assert app._speech() == ("chatterbox", False)
 
 
 def test_the_voice_list_follows_the_engine_and_language(app: gui.App) -> None:

@@ -12,6 +12,7 @@ import pytest
 
 from daisy2telmi import audio, chatterbox_speak, cli, settings, tts
 from daisy2telmi.i18n import LANGUAGES
+from daisy2telmi.telmi_builder import Announce
 
 requires_espeak = pytest.mark.skipif(
     shutil.which("espeak-ng") is None and shutil.which("espeak") is None,
@@ -102,6 +103,63 @@ def test_chatterbox_points_at_the_install_when_it_is_missing(monkeypatch) -> Non
     monkeypatch.setattr(tts, "_has_chatterbox", lambda exe: False)
     with pytest.raises(tts.TtsError, match="pip install chatterbox-tts"):
         tts.resolve(tts.CHATTERBOX, LANGUAGES["fr"])
+
+
+def test_installing_chatterbox_uses_the_pip_of_the_python_that_will_run_it(monkeypatch) -> None:
+    started: list[list[str]] = []
+
+    class FakeProcess:
+        stdout = iter(["Collecting chatterbox-tts", ""])
+
+        def wait(self) -> int:
+            return 0
+
+    def fake_popen(argv, **kwargs):
+        started.append(argv)
+        return FakeProcess()
+
+    monkeypatch.setattr(tts.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(tts, "_python", lambda python=None: "/opt/python")
+    tts._chatterbox_cache["/opt/python"] = False
+    tts.install_chatterbox()
+
+    assert started == [["/opt/python", "-m", "pip", "install", "--upgrade", tts.CHATTERBOX_PACKAGE]]
+    # The options page shows whether the package is there, so it must look again.
+    assert "/opt/python" not in tts._chatterbox_cache
+    tts._chatterbox_cache.clear()
+
+
+def test_a_failed_chatterbox_install_says_so(monkeypatch) -> None:
+    class FakeProcess:
+        stdout: list[str] = []
+
+        def wait(self) -> int:
+            return 1
+
+    monkeypatch.setattr(tts.subprocess, "Popen", lambda argv, **kwargs: FakeProcess())
+    monkeypatch.setattr(tts, "_python", lambda python=None: "/opt/python")
+    with pytest.raises(tts.TtsError, match="could not install"):
+        tts.install_chatterbox()
+
+
+def test_chatterbox_cannot_be_installed_without_a_python(monkeypatch) -> None:
+    monkeypatch.setattr(tts, "_python", lambda python=None: None)
+    with pytest.raises(tts.TtsError, match="no Python to install"):
+        tts.install_chatterbox()
+
+
+def test_a_run_without_chatterbox_still_makes_its_cards(monkeypatch) -> None:
+    """Chatterbox is the saved default, so a machine that lacks it must convert
+    with its own voice instead of failing on the cards."""
+    monkeypatch.setattr(tts, "_python", lambda python=None: "/usr/bin/python3")
+    monkeypatch.setattr(tts, "_has_chatterbox", lambda exe: False)
+    chosen = cli.speech(Announce(mode="chapter", language="fr", engine=tts.CHATTERBOX))
+    assert chosen.engine == tts.AUTO
+
+    monkeypatch.setattr(tts, "_has_chatterbox", lambda exe: True)
+    assert cli.speech(Announce(engine=tts.CHATTERBOX)).engine == tts.CHATTERBOX
+    assert cli.speech(Announce(engine=tts.ESPEAK)).engine == tts.ESPEAK
+    assert cli.speech(None) is None
 
 
 def test_chatterbox_is_only_offered_when_its_package_is_installed(monkeypatch) -> None:

@@ -23,7 +23,7 @@ DEFAULTS: dict = {
     "autoplay": False,
     "format": "telmi",
     "night_mode": True,
-    "tts": "auto",
+    "tts": "chatterbox",
     "voice": None,
     "command": None,
     "python": None,

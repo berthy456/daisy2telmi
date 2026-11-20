@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from . import __version__, audio, chapters, images, settings, tts
@@ -97,7 +98,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="advance to the next chapter when the card's audio ends, instead of waiting for OK",
     )
-    speech.add_argument("--tts", choices=tts.ENGINES, help="speech engine to use")
+    speech.add_argument(
+        "--tts",
+        choices=tts.ENGINES,
+        help="speech engine for the cards: chatterbox (the default) unless it is missing "
+        "from --tts-python, in which case the machine's own voice is used",
+    )
     speech.add_argument("--tts-voice", help="voice name for the speech engine")
     speech.add_argument("--tts-clip", help="a few seconds of someone speaking, for --tts chatterbox to copy")
     speech.add_argument(
@@ -224,6 +230,27 @@ def inspect(
     return 0
 
 
+def speech(announce: Announce | None) -> Announce | None:
+    """The engine this run's cards get, falling back when Chatterbox is not there.
+
+    Chatterbox is the saved default because a card read by a real voice is what the
+    player is for, but it is not inside the app: it is a package the user's own
+    Python installs. A machine that does not have it keeps its own voice rather
+    than losing the story over a card.
+    """
+    if announce is None or announce.engine != tts.CHATTERBOX:
+        return announce
+    if tts.available(tts.CHATTERBOX, announce.python):
+        return announce
+    log.warning(
+        "chatterbox is not installed in %s: the machine's own voice will read the cards "
+        "(pip install %s there, or pass --tts auto)",
+        announce.python or "your Python",
+        tts.CHATTERBOX_PACKAGE,
+    )
+    return replace(announce, engine=tts.AUTO)
+
+
 def convert(
     input_path: Path,
     output_dir: Path,
@@ -237,6 +264,7 @@ def convert(
     night_mode: bool = True,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
+    announce = speech(announce)
     try:
         audio.require_ffmpeg()
         if cover is not None and not cover.is_file():
