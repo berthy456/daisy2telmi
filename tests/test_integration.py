@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from daisy2telmi import audio, images
+from daisy2telmi import audio, images, merlin
 from daisy2telmi.cli import FORMATS, main
 from daisy2telmi.detector import open_pack
 from daisy2telmi.extractor import extract
@@ -372,6 +372,106 @@ def test_no_lunii_archive_is_written_unless_asked(tmp_path, monkeypatch) -> None
     out = tmp_path / "out"
     assert main([str(PACK), str(out)]) == 0
     assert not list(out.glob("*-lunii.zip"))
+
+
+CHAPTER_TITLES = ["一", "二", "三", "四", "五", "六"]
+
+
+def _merlin(out: Path) -> tuple[Path, Path]:
+    """The Telmi story and the card folder the Merlin run left beside it."""
+    story = next(entry for entry in out.iterdir() if entry.is_dir() and not entry.name.endswith("_merlin"))
+    card = next(entry for entry in out.iterdir() if entry.is_dir() and entry.name.endswith("_merlin"))
+    return story, card
+
+
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_the_merlin_format_writes_a_card_of_flat_named_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--format", "merlin"]) == 0
+    story, card = _merlin(out)
+
+    items = merlin.read_playlist(card / merlin.PLAYLIST)
+    root = next(item for item in items if item.kind == merlin.KIND_ROOT)
+    book = next(item for item in items if item.kind == merlin.KIND_FOLDER)
+    assert book.parent == root.id, "the story hangs off the card's root"
+    assert book.children == EXPECTED_CHAPTERS
+    parts = [item for item in items if item.kind == merlin.KIND_AUDIO]
+    assert [item.parent for item in parts] == [book.id] * EXPECTED_CHAPTERS
+    assert [item.order for item in parts] == list(range(EXPECTED_CHAPTERS))
+    assert [item.title for item in parts] == CHAPTER_TITLES, "the title lives in the record"
+    assert all(item.name.isascii() for item in items), "and never in the file name"
+
+    for item in parts:
+        assert (card / f"{item.name}.mp3").is_file(), item.name
+        assert (card / f"{item.name}.jpg").is_file(), item.name
+    assert (card / f"{book.name}.jpg").is_file(), "the menu's own picture"
+    assert (card / "IMPORT.txt").is_file()
+    assert (out / f"{card.name}.zip").is_file()
+    assert (story / "title.png").is_file(), "the Telmi story the card was cut from is kept"
+
+
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
+def test_merlin_audio_is_the_cards_spec_and_starts_with_its_spoken_title(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--format", "merlin"]) == 0
+    story, card = _merlin(out)
+    parts = [item for item in merlin.read_playlist(card / merlin.PLAYLIST) if item.kind == merlin.KIND_AUDIO]
+    assert len(parts) == EXPECTED_CHAPTERS
+
+    for index, item in enumerate(parts):
+        sound = card / f"{item.name}.mp3"
+        info = probe(sound)
+        assert info["codec_name"] == "mp3", item.name
+        assert float(info["sample_rate"]) == merlin.SAMPLE_RATE, item.name
+        assert info["channels"] == str(merlin.CHANNELS), item.name
+        assert float(info["bit_rate"]) == 128_000, item.name
+        with sound.open("rb") as handle:
+            assert handle.read(3) != b"ID3", "the card reads its own tags, not ffmpeg's"
+        # The Merlin has no screen and reads no record aloud, so the only way a
+        # chapter's name is heard is glued onto the front of its audio.
+        spoken = float(probe(story / "audios" / f"c{index}.mp3")["duration"])
+        scene = float(probe(story / "audios" / f"s{index}.mp3")["duration"])
+        assert float(info["duration"]) == pytest.approx(scene + spoken, abs=0.5), item.name
+
+    for picture in card.glob("*.jpg"):
+        raw = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(picture)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert raw == f"{merlin.PICTURE},{merlin.PICTURE}", picture.name
+
+
+@requires_pack
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_merlin_merge_keeps_the_cards_own_records_and_joins_our_story_to_them(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    factory = [
+        merlin.Item(id=1, parent=0, order=0, kind=merlin.KIND_ROOT, title="Root", children=1),
+        merlin.Item(id=2, parent=1, order=0, kind=merlin.KIND_FOLDER, name="a" * 36, title="Contes", children=1),
+        merlin.Item(id=3, parent=2, order=0, kind=merlin.KIND_AUDIO, name="b" * 36, title="Le loup"),
+    ]
+    card_of_the_device = tmp_path / merlin.PLAYLIST
+    merlin.write_playlist(card_of_the_device, factory)
+
+    out = tmp_path / "out"
+    assert main([str(PACK), str(out), "--format", "merlin", "--merlin-merge", str(card_of_the_device)]) == 0
+    _, card = _merlin(out)
+
+    items = merlin.read_playlist(card / merlin.PLAYLIST)
+    assert [(item.id, item.kind, item.title) for item in items[:3]] == [
+        (1, merlin.KIND_ROOT, "Root"),
+        (2, merlin.KIND_FOLDER, "Contes"),
+        (3, merlin.KIND_AUDIO, "Le loup"),
+    ], "the card's own tree is written back as it was read"
+    assert all(item.id > 3 for item in items[3:]), "our ids start after the card's highest"
+    assert [item.order for item in items if item.parent == 1] == [0, 1], "our story joins the card's menus"
+    assert not (card / ("b" * 36 + ".mp3")).exists(), "the card already holds its own files"
 
 
 @requires_pack

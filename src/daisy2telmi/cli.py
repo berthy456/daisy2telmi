@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from . import __version__, audio, chapters, covers, images, settings, tts
+from . import __version__, audio, chapters, covers, images, merlin, settings, tts
 from .chapters import ChapterError
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
 from .i18n import LANGUAGES
 from .lunii import LuniiError, write_studio_zip
+from .merlin import MerlinError
 from .telmi_builder import (
     ANNOUNCE_MODES,
     Announce,
@@ -27,10 +29,20 @@ from .telmi_builder import (
 
 log = logging.getLogger("daisy2telmi")
 
-# The three players, and the archive each one imports. Telmi and the Flam have a
-# colour screen; a plain Lunii shows four grey levels, so its cards are redrawn.
-FORMATS = ("telmi", "lunii", "flam")
-PLAYER = {"telmi": "Telmi Sync", "lunii": "the Lunii", "flam": "the Flam launcher"}
+# The players, and the archive each one imports. Telmi and the Flam have a colour
+# screen; a plain Lunii shows four grey levels, so its cards are redrawn. The
+# Merlin has no screen and no story graph: it takes a card of flat files.
+FORMATS = ("telmi", "lunii", "flam", "merlin")
+PLAYER = {
+    "telmi": "Telmi Sync",
+    "lunii": "the Lunii",
+    "flam": "the Flam launcher",
+    "merlin": "the Merlin story-teller",
+}
+
+# The Merlin writes itself, with no official SDK and no way to try a card on the
+# machine that made the format, so it is offered but not promised.
+BETA = ("merlin",)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -139,7 +151,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--format",
         choices=FORMATS,
         help="which player the story is written for: Telmi (default), a Lunii, whose "
-        "cards are redrawn in four grey levels, or a Flam",
+        "cards are redrawn in four grey levels, a Flam, or a Merlin story-teller "
+        "(beta), whose card holds flat files and a playlist.bin",
+    )
+    parser.add_argument(
+        "--merlin-merge",
+        metavar="PLAYLIST",
+        type=Path,
+        help="with --format merlin, add the story to this playlist.bin read off the card "
+        "instead of writing one holding only the story",
     )
     parser.add_argument(
         "--night-mode",
@@ -278,6 +298,7 @@ def convert(
     night_mode: bool = True,
     find_cover: bool = False,
     zoom: float = 1.0,
+    merge: Path | None = None,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     announce = speech(announce)
@@ -313,6 +334,9 @@ def convert(
                 return 2
             target.mkdir(parents=True, exist_ok=True)
             view = images.crop_view(crop, zoom)
+            # The Merlin has no story graph to write: its card is made from the
+            # Telmi story, so that one is built at Telmi's sizes first.
+            player = "telmi" if fmt == "merlin" else fmt
             if fmt == "lunii":
                 # The four greys cannot be recovered from the colour cards: their
                 # ground is dark and the Lunii wants the other way round. Draw a
@@ -322,12 +346,22 @@ def convert(
                     report = build_story(book, target, announce, cover, cut, crop, grey, player=fmt, view=view)
                     archive = write_studio_zip(target, image_dir=grey, night_mode=night_mode)
             else:
-                report = build_story(book, target, announce, cover, cut, crop, player=fmt, view=view)
-                archive = write_story_zip(target, target.parent)
+                report = build_story(book, target, announce, cover, cut, crop, player=player, view=view)
+                if fmt == "merlin":
+                    log.warning(
+                        "the Merlin export is beta: its card format is undocumented, "
+                        "so nothing here has been read back off a real device"
+                    )
+                    card = target.parent / f"{target.name}_merlin"
+                    names = merlin.export(target, card, [c.title for c in book.chapters], merge)
+                    archive = shutil.make_archive(str(card), "zip", card)
+                    log.info("wrote %d card file(s) and a %s to %s", len(names), merlin.PLAYLIST, card)
+                else:
+                    archive = write_story_zip(target, target.parent)
     except ChapterError as exc:
         log.error("%s", exc)
         return 2
-    except (DaisyPackError, StoryError, images.ImageError, audio.AudioError) as exc:
+    except (DaisyPackError, StoryError, images.ImageError, audio.AudioError, MerlinError) as exc:
         log.error("%s", exc)
         return 1
     except LuniiError as exc:
@@ -383,6 +417,7 @@ def main(argv: list[str] | None = None) -> int:
         night_mode(args),
         args.find_cover,
         args.cover_zoom,
+        args.merlin_merge,
     )
 
 

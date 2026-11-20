@@ -46,7 +46,15 @@ Exit codes: `0` success, `1` pack unreadable or ffmpeg failed, `2` bad arguments
 daisy2telmi --format lunii gon-ruby-mp3.zip stories
 ```
 
-`--format telmi|lunii|flam` picks the player the story is written for; Telmi is the default. The story folder is always written, and one archive comes out of it: `story.zip` for the Telmi Sync and the Flam launcher, which both import TELMI folders, or `<story>-lunii.zip` in the STUdio form for a Lunii. A plain Lunii has no colour panel and four grey levels, so choosing it draws a second set of cards — white ground, black ink, flattened to `0/96/192/255` — and builds the archive from those. The GUI has the same three choices under the cover field.
+`--format telmi|lunii|flam|merlin` picks the player the story is written for; Telmi is the default. The story folder is always written, and one archive comes out of it: `story.zip` for the Telmi Sync and the Flam launcher, which both import TELMI folders, `<story>-lunii.zip` in the STUdio form for a Lunii, or `<story>_merlin.zip` for a Merlin story-teller. A plain Lunii has no colour panel and four grey levels, so choosing it draws a second set of cards — white ground, black ink, flattened to `0/96/192/255` — and builds the archive from those. The GUI has the same four choices under the cover field.
+
+#### Merlin (beta)
+
+The Merlin has no screen and no story graph: its micro-SD card holds one flat folder of `.mp3` and `.jpg` files named with a uuid, and a `playlist.bin` that lists them as records 152 bytes each — the tree, the titles and the order are all in that file. `--format merlin` writes it: one record for the story, one per part, each MP3 at 44.1 kHz stereo 128 kb/s with no ID3 tag, each picture a 128×128 JPEG. Because the device never reads a record's title aloud, each part's audio starts with its chapter card spoken, so a chapter's name is still heard.
+
+`--merlin-merge PLAYLIST.bin` takes a `playlist.bin` copied off the card and writes a new one holding the card's own records plus this story under its root; without it the file lists only this story, and the card's own content stops showing until its original file is put back. `IMPORT.txt` in the archive says which files to copy and which ones (`sleep.cfg`, `wifi.cfg`, the `default` folder) never to delete.
+
+This is beta: the format is undocumented, the tools that edit a card are awkward, and nothing here has been read back off a real Merlin. Telmi, Lunii and Flam are the stable outputs.
 
 `--night-mode` / `--no-night-mode` marks the Lunii archive `nightModeAvailable`, which is how a Lunii offers the story in its bedtime playlist — screen off, volume capped. It is on by default and only reaches `--format lunii`: the Telmi player keeps night mode as a device setting, and a story folder cannot ask for it.
 
@@ -253,7 +261,7 @@ pip install -e .[dev]
 pytest
 ```
 
-301 Python tests and 63 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
+314 Python tests and 63 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
 
 The browser modules have their own suite, run with Node's test runner:
 

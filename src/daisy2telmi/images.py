@@ -25,11 +25,15 @@ IMAGE_SIZE = (640, 480)
 COVER_SIZE = (512, 512)
 
 # What each player's screen shows, so the picture is drawn where it will be seen:
-# a cover cropped for a 320x240 Lunii keeps the band that Lunii displays.
+# a cover cropped for a 320x240 Lunii keeps the band that Lunii displays. The
+# Merlin has no screen: its story is drawn at Telmi's sizes and merlin.py cuts the
+# 128x128 card pictures from them, so the story folder it leaves behind is one the
+# Telmi player can still read.
 SCREENS = {
     "telmi": (IMAGE_SIZE, COVER_SIZE),
     "lunii": ((320, 240), (320, 240)),
     "flam": ((320, 212), (104, 136)),
+    "merlin": (IMAGE_SIZE, COVER_SIZE),
 }
 
 
