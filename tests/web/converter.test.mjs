@@ -145,6 +145,28 @@ test("the story zip carries every entry Telmi-Sync requires", async () => {
   assert.equal([...names].filter((name) => name.startsWith("images/")).length, 6);
 });
 
+// The desktop Chapters window lets parts be left out; the page's boxes do the
+// same, so the numbers stay in order after the removal.
+test("leaving parts out renumbers the story", async () => {
+  const silent = new Uint8Array(await readFile(join(ROOT, "web/silence.mp3")));
+  const entries = await pack("gon-ruby-mp3.zip");
+  const whole = extractBook(entries, "chapter").chapters;
+  const kept = await buildStoryFiles(entries, silent, () => {}, { drop: [2, 5] });
+  const names = new Set(kept.files.map((file) => file.name.replace(`${kept.dirName}/`, "")));
+
+  assert.equal(kept.book.chapters.length, 4);
+  assert.deepEqual(kept.book.chapters.map((part) => part.title), [0, 2, 3, 5].map((k) => whole[k].title));
+  for (const k of [0, 1, 2, 3]) {
+    assert.ok(names.has(`audios/s${k}.mp3`), `missing s${k}`);
+    assert.ok(names.has(`images/m${k}.png`), `missing m${k}`);
+  }
+  assert.equal(names.has("audios/s4.mp3"), false, "a dropped part left its audio behind");
+  assert.equal(names.has("images/m5.png"), false, "a dropped part left its image behind");
+
+  const nodes = JSON.parse(new TextDecoder().decode(kept.files.find((file) => file.name.endsWith("nodes.json")).data));
+  assert.deepEqual(Object.keys(nodes.stages).sort(), ["m0", "m1", "m2", "m3", "s0", "s1", "s2", "s3"]);
+});
+
 test("feeding back a converted story says what it is", async () => {
   const entries = await pack("gon-ruby-mp3-telmi.zip");
   assert.throws(() => extractBook(entries), /already a Telmi story/);

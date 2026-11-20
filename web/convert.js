@@ -38,11 +38,14 @@ function firstSeconds(segments, bytesOf, seconds) {
  * options.player: "telmi", "lunii" or "flam" — whose screen sizes every picture is drawn at.
  * options.cardLabel(number, total, worded): the words drawn on a card.
  * options.cardAudio(number): bytes for the card to say, or null to leave it silent.
+ * options.drop: 1-based part numbers to leave out of the story.
  */
 export async function buildStoryFiles(entries, silentMp3, onProgress = () => {}, options = {}) {
   const cut = options.cut ?? "chapter";
   const book = extractBook(entries, cut);
   if (!book.chapters.length) throw new Error("no chapter with audio found in this pack");
+  const drop = new Set(options.drop ?? []);
+  if (drop.size) book.chapters = book.chapters.filter((_, k) => !drop.has(k + 1));
 
   const uuid = await storyUuid(book);
   const dirName = storyDirName(book.title, uuid);

@@ -27,6 +27,10 @@ const cropInputs = [...document.querySelectorAll('input[name="crop"]')];
 const formatInputs = [...document.querySelectorAll('input[name="format"]')];
 const nightRow = document.getElementById("night-row");
 const nightInput = document.getElementById("night-mode");
+const partsBox = document.getElementById("parts");
+const partsList = document.getElementById("parts-list");
+const partsNote = document.getElementById("parts-note");
+const partsAll = document.getElementById("parts-all");
 
 const silentMp3 = new Uint8Array(await (await fetch("./silence.mp3")).arrayBuffer());
 const STORED_LANGUAGE = "daisy2telmi.language";
@@ -36,6 +40,9 @@ const STORED_CROP = "daisy2telmi.crop";
 const STORED_NIGHT = "daisy2telmi.night";
 // The summary lists the parts it starts; a book cut to the sentence level has hundreds.
 const LISTED_PARTS = 30;
+// A sentence-level book can run to thousands of parts: past this the page says
+// how many there are instead of drawing a thousand checkboxes.
+const LISTED_BOXES = 400;
 
 let source = null;
 let cover = null;
@@ -45,6 +52,8 @@ let crop = "center";
 let format = "telmi";
 let night = true;
 let cropUrls = [];
+// Part numbers left out of the story, in the numbering of the chosen cut level.
+let dropped = new Set();
 
 const t = (key, values) => text(lang, key, values);
 
@@ -92,6 +101,7 @@ function startCut() {
     input.addEventListener("change", () => {
       cut = input.value;
       remember(STORED_CUT, cut);
+      showParts();
     });
   }
 }
@@ -182,6 +192,63 @@ function clearCover() {
   cropUrls = [];
 }
 
+function partSeconds(chapter) {
+  return chapter.segments.reduce((sum, part) => sum + Math.max(0, (part.end ?? 0) - (part.begin ?? 0)), 0);
+}
+
+function formatSeconds(seconds) {
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/**
+ * The parts the pack was cut into, each with a box to leave it out. The numbers
+ * belong to the chosen level, so changing level redraws the list and forgets the
+ * parts left out of the old one.
+ */
+async function showParts() {
+  if (!source) return;
+  dropped.clear();
+  partsAll.hidden = true;
+  partsList.textContent = "";
+  try {
+    const { chapters } = extractBook(await packEntries(), cut);
+    if (chapters.length > LISTED_BOXES) {
+      partsNote.textContent = t("parts_too_many", { n: chapters.length });
+      partsBox.hidden = false;
+      return;
+    }
+    partsNote.textContent = "";
+    chapters.forEach((chapter, index) => {
+      const row = document.createElement("label");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = true;
+      box.addEventListener("change", () => {
+        if (box.checked) dropped.delete(index + 1);
+        else dropped.add(index + 1);
+        partsAll.hidden = dropped.size === 0;
+      });
+      const title = document.createElement("span");
+      title.textContent = `${index + 1}. ${chapter.title}`;
+      const length = document.createElement("span");
+      length.className = "muted";
+      length.textContent = formatSeconds(partSeconds(chapter));
+      row.append(box, title, length);
+      partsList.append(row);
+    });
+    partsBox.hidden = false;
+  } catch {
+    partsBox.hidden = true;
+  }
+}
+
+function keepAllParts() {
+  for (const box of partsList.querySelectorAll("input")) box.checked = true;
+  dropped.clear();
+  partsAll.hidden = true;
+}
+
 function showSummary(story) {
   const parts = story.book.chapters;
   const listed = parts.slice(0, LISTED_PARTS).map((part, index) => `${index + 1}. ${part.title}`).join("\n");
@@ -219,6 +286,7 @@ async function saveStory() {
         cover,
         crop,
         cut,
+        drop: [...dropped],
         player: format,
         style: format === "lunii" ? "bw" : "colour",
         t: (key) => t(key),
@@ -279,6 +347,7 @@ async function openCutLevels() {
       input.checked = input.value === cut;
     }
     log(t("log_cut_levels", { levels: choices.map((level) => t(`cut_${level}`)).join(", ") }));
+    await showParts();
   } catch (error) {
     log(t("log_error", { message: error.message ?? error }));
   }
@@ -288,6 +357,7 @@ function setSource(name, loader) {
   source = { name, loader, entries: null };
   saveButton.disabled = false;
   clearResult();
+  partsBox.hidden = true;
   logView.textContent = "";
   coverSearch.href = searchUrl(name.replace(/\.[^.]+$/, ""));
   coverSearch.hidden = false;
@@ -352,6 +422,7 @@ coverUse.addEventListener("click", async () => {
 });
 
 coverClear.addEventListener("click", clearCover);
+partsAll.addEventListener("click", keepAllParts);
 saveButton.addEventListener("click", saveStory);
 
 startLanguage();

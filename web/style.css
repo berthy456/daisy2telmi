@@ -280,6 +280,45 @@ button:disabled {
   margin-top: 1rem;
 }
 
+.parts {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.parts-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+/* A sentence-level book fills this box, so it scrolls instead of pushing the
+   Save button off the page. */
+.parts-list {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.parts-list label {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--ink);
+}
+
+.parts-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .summary {
   margin-top: 1rem;
   padding: 0.75rem;

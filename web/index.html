@@ -114,6 +114,19 @@
           </div>
         </div>
 
+        <!-- The parts the pack was cut into, so unwanted ones can be left out.
+             The numbers mean the parts of the chosen level, so the list is drawn
+             again whenever that level changes. -->
+        <div id="parts" class="parts" hidden>
+          <div class="parts-head">
+            <h2 data-i18n="parts_title"></h2>
+            <button id="parts-all" type="button" class="quiet" hidden data-i18n="parts_all"></button>
+          </div>
+          <p class="muted" data-i18n="parts_hint"></p>
+          <p id="parts-note" class="muted"></p>
+          <div id="parts-list" class="parts-list"></div>
+        </div>
+
         <div id="summary" class="summary" hidden></div>
 
         <div class="actions">
