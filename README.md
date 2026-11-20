@@ -75,13 +75,19 @@ DAISY 2.02 audio packs carry no cover, so the user supplies one:
 daisy2telmi --cover cover.jpg gon-ruby-mp3.zip stories
 ```
 
+The pack does name the print book it was read from: `dc:source` holds that book's ISBN (`dc:identifier` is the DAISY edition's own number, which no cover service knows). `--find-cover` asks Open Library for that ISBN, or searches by title and author when the pack has no ISBN, and uses the picture it returns:
+
+```bash
+daisy2telmi --find-cover gon-ruby-mp3.zip stories
+```
+
 ffmpeg crops the picture to `640x480` for `title.png` and for every chapter card, and to `512x512` for `cover.png`. Each card gets its number drawn across the middle in white with a black border — `CHAPTER 2/23`, in the `--language` of the story — so the listener sees which chapter of how many is playing. Without `--cover` the images are the placeholders described under [Output](#output).
 
 `--cover-crop top|center|bottom` says how the picture is cropped to fit those three different ratios; the middle is the default, and a tall cover loses its title there.
 
 The number is drawn by the converter rather than by ffmpeg: Homebrew's ffmpeg has no `drawtext`, so `src/daisy2telmi/images.py` carries a 5x7 bitmap font and ffmpeg only composites the result. The font is Latin, so Chinese and Arabic cards show `2/23` alone; the spoken card still says the word.
 
-The GUI has the same field below the output folder. The web page takes a cover from a file, from a link, or from a Google image search opened for the pack's title. Both then show the three crops side by side, drawn from the cover you picked, and you choose by eye.
+The GUI has the same field below the output folder, and looks a cover up by itself as soon as a pack is picked or dropped: the answer lands in the field, and a cover already typed there is never replaced. The web page does the same once it has read the pack. Both keep their own link, which opens a Google image search for the pack's title, and both take a cover from a file or from a link. Both then show the three crops side by side, drawn from the cover in use, and you choose by eye. Open Library is asked rather than isbndb.com because it needs no key and answers browser requests; isbndb.com's key costs money.
 
 ### Listening before converting
 
@@ -247,7 +253,7 @@ pip install -e .[dev]
 pytest
 ```
 
-178 Python tests and 24 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
+295 Python tests and 61 for the browser modules. The integration tests skip themselves if `gon-ruby-mp3.zip` or `ffprobe` is absent. `tests/test_published_pack.py` additionally checks a real published Telmi story against the same validator; it skips unless `TELMI_SAMPLE` points at one. `tests/test_gui.py` skips where there is no Tk or no display.
 
 The browser modules have their own suite, run with Node's test runner:
 
@@ -292,7 +298,7 @@ Builds:
 - **Synchronised text is ignored completely.** Only `<audio>` elements are read; `<text>` and the XHTML files are never opened. Safe for audio+text packs, but a text-only pack produces "no chapter with audio" and exits 2.
 - **TTS speaks the cards, not the book.** A book with no recorded audio still produces no chapters. The synthesised phrases are short. The default voice is Chatterbox, which is not in the binaries; the engine the binaries do carry, espeak-ng, is robotic, and `--tts command` is the way to put any other model behind it.
 - **The bundled ffmpeg is the build machine's binary**, unmodified and unsigned.
-- **No cover art comes from the pack.** DAISY 2.02 audio packs carry no usable cover, so `--cover` supplies one; without it `cover.png`, `title.png` and the chapter images are generated placeholders.
+- **No cover art comes from the pack.** DAISY 2.02 audio packs carry no usable cover, so `--cover` supplies one and `--find-cover` asks Open Library for the print book named in `dc:source`; with neither, `cover.png`, `title.png` and the chapter images are generated placeholders. A lookup needs the network, and a pack with no ISBN and no searchable title has nothing to ask with.
 - **The drawn card label is uppercase Latin.** The bitmap font in `src/daisy2telmi/images.py` covers the eight Latin-script languages plus accented letters; Chinese and Arabic cards fall back to the bare number.
 - **A non-Latin title collapses in the folder name.** `stringNormalizeFileName` keeps only `a-zA-Z0-9-.`, so *ごんぎつね* becomes a single space and the folder is `_00_ _<uuid>`. This is Telmi-Sync's own behaviour, not a converter bug; `metadata.json` keeps the real title.
 - **Chapter granularity is fixed.** A pack with a single flat heading level becomes one chapter; there is no option to split on `h2`.

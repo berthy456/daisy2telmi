@@ -174,7 +174,7 @@ export function extractBook(entries, level = "chapter") {
   if (pack.opf) {
     const opf = parse(normalizePath(pack.opf.name));
     if (opf) {
-      for (const tag of ["title", "language", "creator", "publisher", "identifier", "description"]) {
+      for (const tag of ["title", "language", "creator", "publisher", "identifier", "description", "source"]) {
         const found = opf.find(tag)[0];
         const key = `dc:${tag}`;
         if (found && !metadata.has(key)) metadata.set(key, textOf(found));
@@ -289,6 +289,8 @@ export function extractBook(entries, level = "chapter") {
     publisher: metadata.get("dc:publisher") || null,
     narrator: metadata.get("ncc:narrator") || null,
     identifier: metadata.get("dc:identifier") || null,
+    // The print book this was read from: its ISBN is what a cover lookup asks with.
+    source: metadata.get("dc:source") || null,
     totalTime: parseClock(metadata.get("ncc:totaltime")),
     chapters: chapters
       .filter((c) => c.segments.length)

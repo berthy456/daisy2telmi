@@ -1,5 +1,6 @@
 import { CUT_LEVELS, cutChoices, extractBook } from "./daisy.js";
 import { cropPreviews, loadCoverFile, loadCoverUrl, previewDataUrl, screen, searchUrl } from "./cover.js";
+import { findCover } from "./covers.js";
 import { buildStoryZip } from "./convert.js";
 import { LANGUAGES, NAMES, apply, pickLanguage, text } from "./i18n.js";
 import { buildStudioZip } from "./lunii.js";
@@ -54,6 +55,9 @@ let night = true;
 let cropUrls = [];
 // Part numbers left out of the story, in the numbering of the chosen cut level.
 let dropped = new Set();
+// Counts the lookups in flight, so an answer about a pack that has been replaced
+// is thrown away instead of landing in the cover box.
+let coverJob = 0;
 
 const t = (key, values) => text(lang, key, values);
 
@@ -190,6 +194,25 @@ function clearCover() {
   cropRow.hidden = true;
   for (const url of cropUrls) URL.revokeObjectURL(url);
   cropUrls = [];
+}
+
+/**
+ * The cover the pack does not carry, asked for as soon as the pack is read. A
+ * cover the user picked is never replaced by a suggestion, and a newer pack
+ * cancels an answer that is still on its way.
+ */
+async function suggestCover() {
+  const job = ++coverJob;
+  if (cover) return;
+  let bitmap = null;
+  try {
+    bitmap = await findCover(extractBook(await packEntries(), cut), location.href);
+  } catch {
+    bitmap = null;
+  }
+  if (job !== coverJob || cover) return;
+  log(bitmap ? t("cover_found") : t("cover_none"));
+  if (bitmap) setCover(bitmap);
 }
 
 function partSeconds(chapter) {
@@ -363,6 +386,7 @@ function setSource(name, loader) {
   coverSearch.hidden = false;
   log(t("log_loaded", { name }));
   openCutLevels();
+  suggestCover();
 }
 
 async function entriesFromZip(file) {

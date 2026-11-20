@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from . import __version__, audio, chapters, images, settings, tts
+from . import __version__, audio, chapters, covers, images, settings, tts
 from .chapters import ChapterError
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
@@ -53,6 +53,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         metavar="IMAGE",
         type=Path,
         help="draw every chapter card over this picture instead of the placeholder",
+    )
+    parser.add_argument(
+        "--find-cover",
+        action="store_true",
+        help="ask Open Library for the cover of the print book the pack names in dc:source, "
+        "and draw the cards over that instead of the placeholder",
     )
     parser.add_argument(
         "--cover-crop",
@@ -262,6 +268,7 @@ def convert(
     fmt: str = "telmi",
     crop: str = "center",
     night_mode: bool = True,
+    find_cover: bool = False,
 ) -> int:
     """Convert one pack. Logs through this module's logger so a GUI can follow along."""
     announce = speech(announce)
@@ -270,7 +277,8 @@ def convert(
         if cover is not None and not cover.is_file():
             log.error("no such cover image: %s", cover)
             return 2
-        with open_pack(input_path) as pack:
+        # The looked-up cover has to outlive the lookup: the cards are drawn below.
+        with open_pack(input_path) as pack, tempfile.TemporaryDirectory(prefix="daisy2telmi-cover-") as scratch:
             log.info("pack root: %s", pack.root)
             book = extract(pack, cut)
             if not book.chapters:
@@ -282,6 +290,8 @@ def convert(
                 cut,
                 ", ".join(c.title for c in book.chapters),
             )
+            if cover is None and find_cover:
+                cover = covers.find(book, Path(scratch) / "cover.jpg")
             if drop:
                 book = chapters.drop_chapters(book, chapters.parse_selection(drop))
                 log.info("dropped %s: converting %d chapter(s)", drop, len(book.chapters))
@@ -361,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         output_format(args),
         cover_crop(args),
         night_mode(args),
+        args.find_cover,
     )
 
 

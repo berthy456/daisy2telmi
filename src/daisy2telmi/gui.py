@@ -15,11 +15,13 @@ import queue
 import tempfile
 import threading
 import tkinter as tk
+import webbrowser
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from urllib.parse import quote_plus
 
-from . import audio, chapters, images, settings, tts
+from . import audio, chapters, covers, images, settings, tts
 from .cli import FORMATS, convert
 from .detector import DaisyPackError, open_pack
 from .extractor import CUT_LEVELS, extract
@@ -64,6 +66,11 @@ class App:
         root.option_add("*icons.canvas.height", "300p", "widgetDefault")
         self.pack_var.trace_add("write", self._follow_pack)
         self.cover_var = tk.StringVar()
+        # A looked-up cover has to stay on disk while the cards are drawn, so the
+        # session keeps one folder for them and each lookup replaces the last.
+        self._cover_dir: Path | None = None
+        self._cover_job = 0
+        self._pack_title: str | None = None
         self.crop_var = tk.StringVar(value=self.options["cover_crop"])
         self.format_var = tk.StringVar(value=self.options["format"])
         self.night_var = tk.BooleanVar(value=bool(self.options["night_mode"]))
@@ -135,7 +142,10 @@ class App:
 
         self._label(grid, "cover_label").grid(row=5, column=0, sticky="w", pady=(0, 2))
         ttk.Entry(grid, textvariable=self.cover_var).grid(row=5, column=1, sticky="ew", padx=(6, 0))
-        self._button(grid, "browse_cover", self._pick_cover).grid(row=5, column=2, sticky="e", padx=(6, 0))
+        cover_row = ttk.Frame(grid)
+        cover_row.grid(row=5, column=2, sticky="e", padx=(6, 0))
+        self._button(cover_row, "browse_cover", self._pick_cover).pack(side="left")
+        self._button(cover_row, "cover_search", self._search_cover).pack(side="left", padx=(4, 0))
 
         crop_row = ttk.Frame(grid)
         crop_row.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -237,11 +247,52 @@ class App:
         )
         if path:
             self.pack_var.set(path)
+            self._find_cover()
 
     def _pick_pack_dir(self) -> None:
         path = filedialog.askdirectory(initialdir=self._start_dir())
         if path:
             self.pack_var.set(path)
+            self._find_cover()
+
+    def _find_cover(self) -> None:
+        """Offer the cover of the print book the pack was read from.
+
+        A 2.02 audio pack carries no picture, but its metadata names the book's
+        ISBN, and Open Library has the cover for it more often than not. The
+        answer arrives on its own thread: a lookup that takes a second should not
+        stop the window from drawing. A cover the user already typed is never
+        replaced.
+        """
+        pack = self._typed_path(self.pack_var)
+        self._cover_job += 1
+        self._pack_title = None
+        if pack is None or not pack.exists() or self.cover_var.get().strip():
+            return
+        if self._cover_dir is None:
+            self._cover_dir = Path(tempfile.mkdtemp(prefix="daisy2telmi-cover-"))
+        # One name per lookup, so two packs picked in a row cannot write over each other.
+        dest = self._cover_dir / f"cover-{self._cover_job}.jpg"
+        threading.Thread(target=self._cover_lookup, args=(pack, self._cover_job, dest), daemon=True).start()
+
+    def _cover_lookup(self, pack: Path, job: int, dest: Path) -> None:
+        """Read the pack's own metadata off the worker thread, then post the picture back."""
+        try:
+            with open_pack(pack) as opened:
+                book = extract(opened, "chapter")
+            found = covers.find(book, dest)
+        except Exception as exc:  # a suggestion is worth nothing here: it must never break the window
+            log.warning("no cover lookup for %s: %s", pack.name, exc)
+            return
+        self.events.put(("cover", job, "" if found is None else str(found), book.title))
+
+    def _search_cover(self) -> None:
+        """Open an image search for the book: the pack has no picture of its own."""
+        pack = self._typed_path(self.pack_var)
+        if pack is None:
+            return
+        query = self._pack_title or pack.stem
+        webbrowser.open(f"https://www.google.com/search?tbm=isch&q={quote_plus(query)}")
 
     def _pick_out_dir(self) -> None:
         path = filedialog.askdirectory(initialdir=self._start_dir())
@@ -300,6 +351,7 @@ class App:
         dropped = self.root.tk.splitlist(event.data)
         if dropped:
             self.pack_var.set(dropped[0])
+            self._find_cover()
 
     def _append(self, line: str) -> None:
         self.log_view.configure(state="normal")
@@ -407,10 +459,29 @@ class App:
                 self.progress.stop()
                 self.save_button.state(["!disabled"])
                 self._append("done" if item[1] == 0 else f"failed with exit code {item[1]}")
+            elif item[0] == "cover":
+                self._took_cover(*item[1:])
             else:
                 self._append(item)
 
         self.root.after(100, self._drain)
+
+    def _took_cover(self, job: int, path: str, title: str) -> None:
+        """Put a looked-up cover in the Image box.
+
+        Only the lookup the newest pack asked for counts, and a cover the user
+        typed or picked themselves is never replaced by a suggestion.
+        """
+        if job != self._cover_job:
+            return
+        self._pack_title = title
+        if self.cover_var.get().strip():
+            return
+        if path:
+            self.cover_var.set(path)
+            self._append(self.t("cover_found"))
+        else:
+            self._append(self.t("cover_none"))
 
 
 class ChapterList:

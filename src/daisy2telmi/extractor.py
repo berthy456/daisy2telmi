@@ -49,6 +49,7 @@ class Book:
     publisher: str | None = None
     narrator: str | None = None
     identifier: str | None = None
+    source: str | None = None
 
 
 @dataclass
@@ -111,7 +112,7 @@ def _opf_meta(root: etree._Element) -> dict[str, str]:
     out: dict[str, str] = {}
     for element in root.iter():
         name = _localname(element)
-        if name in {"title", "language", "creator", "publisher", "identifier", "description"}:
+        if name in {"title", "language", "creator", "publisher", "identifier", "description", "source"}:
             text = (element.text or "").strip()
             if text and name not in out:
                 out[name] = text
@@ -395,4 +396,5 @@ def extract(pack: DaisyPack, level: str = "chapter") -> Book:
         publisher=metadata.get("dc:publisher") or None,
         narrator=metadata.get("ncc:narrator") or None,
         identifier=metadata.get("dc:identifier") or None,
+        source=metadata.get("dc:source") or None,
     )
